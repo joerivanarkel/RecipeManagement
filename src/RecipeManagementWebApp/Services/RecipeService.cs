@@ -133,6 +133,7 @@ public class RecipeService(RecipeDbContext dbContext, IPhotoStorageService photo
         recipe.Steps.AddRange(newSteps);
 
         string? photoWarning = null;
+        Photo? photoFileToDeleteAfterSave = null;
         if (newPhoto is not null)
         {
             var photoResult = await photoStorageService.SavePhotoAsync(id, newPhoto, cancellationToken);
@@ -140,7 +141,9 @@ public class RecipeService(RecipeDbContext dbContext, IPhotoStorageService photo
             {
                 if (recipe.Photo is not null)
                 {
-                    photoStorageService.DeletePhotoFile(recipe.Photo);
+                    // Defer deleting the old file until the DB save succeeds, so a failed save
+                    // doesn't leave the DB pointing at a photo file that's already gone (FR-005).
+                    photoFileToDeleteAfterSave = recipe.Photo;
                     dbContext.Photos.Remove(recipe.Photo);
                 }
 
@@ -156,13 +159,18 @@ public class RecipeService(RecipeDbContext dbContext, IPhotoStorageService photo
         }
         else if (removePhoto && recipe.Photo is not null)
         {
-            photoStorageService.DeletePhotoFile(recipe.Photo);
+            photoFileToDeleteAfterSave = recipe.Photo;
             dbContext.Photos.Remove(recipe.Photo);
             recipe.Photo = null;
             recipe.PhotoId = null;
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        if (photoFileToDeleteAfterSave is not null)
+        {
+            photoStorageService.DeletePhotoFile(photoFileToDeleteAfterSave);
+        }
 
         return Result<CreateRecipeOutcome>.Success(new CreateRecipeOutcome(recipe, photoWarning));
     }
@@ -192,13 +200,16 @@ public class RecipeService(RecipeDbContext dbContext, IPhotoStorageService photo
             return false;
         }
 
-        if (recipe.Photo is not null)
-        {
-            photoStorageService.DeletePhotoFile(recipe.Photo);
-        }
+        var photo = recipe.Photo;
 
         dbContext.Recipes.Remove(recipe);
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        if (photo is not null)
+        {
+            photoStorageService.DeletePhotoFile(photo);
+        }
+
         return true;
     }
 }

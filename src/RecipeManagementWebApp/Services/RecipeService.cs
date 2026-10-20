@@ -72,6 +72,101 @@ public class RecipeService(RecipeDbContext dbContext, IPhotoStorageService photo
         return Result<CreateRecipeOutcome>.Success(new CreateRecipeOutcome(recipe, photoWarning));
     }
 
+    public async Task<Result<CreateRecipeOutcome>?> UpdateAsync(
+        Guid id, NewRecipeInput input, PhotoUploadRequest? newPhoto, bool removePhoto,
+        CancellationToken cancellationToken = default)
+    {
+        var recipe = await dbContext.Recipes
+            .Include(r => r.Ingredients)
+            .Include(r => r.Steps)
+            .Include(r => r.Photo)
+            .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+        if (recipe is null)
+        {
+            return null;
+        }
+
+        var validation = RecipeValidator.Validate(input);
+        if (!validation.Succeeded)
+        {
+            return Result<CreateRecipeOutcome>.Failure(validation.Errors);
+        }
+
+        var validated = validation.Value!;
+
+        recipe.Title = validated.Title;
+        recipe.Servings = validated.Servings;
+        recipe.UpdatedAt = DateTime.UtcNow;
+
+        // Explicit RemoveRange/AddRange (rather than mutating the navigation collection) is required so EF Core
+        // marks the new rows as Added — a client-generated GUID key with no explicit Add() is otherwise treated
+        // as an existing row (state Modified) rather than a new one.
+        var newIngredients = validated.Ingredients
+            .Select((ingredient, index) => new Ingredient
+            {
+                Id = Guid.NewGuid(),
+                RecipeId = id,
+                Quantity = ingredient.Quantity,
+                Unit = ingredient.Unit,
+                Item = ingredient.Item,
+                Note = ingredient.Note,
+                DisplayOrder = index,
+            })
+            .ToList();
+        dbContext.Ingredients.RemoveRange(recipe.Ingredients);
+        dbContext.Ingredients.AddRange(newIngredients);
+        recipe.Ingredients.Clear();
+        recipe.Ingredients.AddRange(newIngredients);
+
+        var newSteps = validated.Steps
+            .Select((text, index) => new Step
+            {
+                Id = Guid.NewGuid(),
+                RecipeId = id,
+                Text = text,
+                DisplayOrder = index,
+            })
+            .ToList();
+        dbContext.Steps.RemoveRange(recipe.Steps);
+        dbContext.Steps.AddRange(newSteps);
+        recipe.Steps.Clear();
+        recipe.Steps.AddRange(newSteps);
+
+        string? photoWarning = null;
+        if (newPhoto is not null)
+        {
+            var photoResult = await photoStorageService.SavePhotoAsync(id, newPhoto, cancellationToken);
+            if (photoResult.Succeeded)
+            {
+                if (recipe.Photo is not null)
+                {
+                    photoStorageService.DeletePhotoFile(recipe.Photo);
+                    dbContext.Photos.Remove(recipe.Photo);
+                }
+
+                dbContext.Photos.Add(photoResult.Value!);
+                recipe.Photo = photoResult.Value;
+                recipe.PhotoId = photoResult.Value!.Id;
+            }
+            else
+            {
+                // Photo is optional — a failed upload must not block the rest of the edit from saving.
+                photoWarning = photoResult.Errors.FirstOrDefault();
+            }
+        }
+        else if (removePhoto && recipe.Photo is not null)
+        {
+            photoStorageService.DeletePhotoFile(recipe.Photo);
+            dbContext.Photos.Remove(recipe.Photo);
+            recipe.Photo = null;
+            recipe.PhotoId = null;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return Result<CreateRecipeOutcome>.Success(new CreateRecipeOutcome(recipe, photoWarning));
+    }
+
     public async Task<IReadOnlyList<RecipeSummary>> GetSummariesAsync(CancellationToken cancellationToken = default)
     {
         return await dbContext.Recipes

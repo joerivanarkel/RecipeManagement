@@ -50,7 +50,7 @@ else
 
             <div class="d-flex gap-2 mb-4">
                 <button type="button" class="btn btn-primary" disabled title="Coming soon">Start Cooking</button>
-                <button type="button" class="btn btn-outline-secondary" disabled title="Coming soon">Edit Recipe</button>
+                <a class="btn btn-outline-secondary" href="@($"recipes/{Id}/edit")">Edit Recipe</a>
                 <button type="button" class="btn btn-outline-danger" @onclick="DeleteAsync" disabled="@_isDeleting">
                     @(_isDeleting ? "Deleting..." : "Delete Recipe")
                 </button>

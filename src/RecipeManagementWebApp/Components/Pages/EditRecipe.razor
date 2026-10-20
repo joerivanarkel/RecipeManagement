@@ -1,0 +1,328 @@
+@page "/recipes/{Id:guid}/edit"
+@rendermode InteractiveServer
+@using RecipeManagementWebApp.Services
+@inject IRecipeService RecipeService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Edit Recipe</PageTitle>
+
+@if (_notFound)
+{
+    <div class="py-4">
+        <h1>Recipe not found</h1>
+        <a href="/">Back to recipes</a>
+    </div>
+}
+else if (!_loaded)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <NavigationLock ConfirmExternalNavigation="_isDirty" OnBeforeInternalNavigation="OnBeforeInternalNavigationAsync" />
+
+    <h1>Edit Recipe</h1>
+
+    @if (_errors.Count > 0)
+    {
+        <div class="alert alert-danger" role="alert">
+            <ul class="mb-0">
+                @foreach (var error in _errors)
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        </div>
+    }
+
+    @if (_photoWarning is not null)
+    {
+        <div class="alert alert-warning" role="alert">@_photoWarning</div>
+    }
+
+    <div class="mb-3">
+        <label for="title" class="form-label">Title</label>
+        <input id="title" class="form-control" maxlength="200"
+               @bind="_title" @bind:event="oninput" @bind:after="MarkDirty" />
+    </div>
+
+    <div class="mb-3">
+        <label for="servings" class="form-label">Servings</label>
+        <input id="servings" class="form-control" inputmode="numeric" style="max-width: 10rem"
+               @bind="_servings" @bind:event="oninput" @bind:after="MarkDirty" />
+    </div>
+
+    <h2>Ingredients</h2>
+    @for (var i = 0; i < _ingredients.Count; i++)
+    {
+        var index = i;
+        var row = _ingredients[index];
+        <div class="row g-2 mb-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label">Quantity</label>
+                <input class="form-control" @bind="row.Quantity" @bind:event="oninput" @bind:after="MarkDirty" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Unit</label>
+                <input class="form-control" @bind="row.Unit" @bind:event="oninput" @bind:after="MarkDirty" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Item</label>
+                <input class="form-control" @bind="row.Item" @bind:event="oninput" @bind:after="MarkDirty" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Note</label>
+                <input class="form-control" @bind="row.Note" @bind:event="oninput" @bind:after="MarkDirty" />
+            </div>
+            <div class="col-md-2">
+                <button type="button" class="btn btn-outline-danger" @onclick="() => RemoveIngredient(index)">Remove</button>
+            </div>
+        </div>
+    }
+    <button type="button" class="btn btn-outline-secondary mb-4" @onclick="AddIngredient">Add Ingredient</button>
+
+    <h2>Steps</h2>
+    @for (var i = 0; i < _steps.Count; i++)
+    {
+        var index = i;
+        <div class="row g-2 mb-2 align-items-start">
+            <div class="col-md-9">
+                <label class="form-label">Step @(index + 1)</label>
+                <textarea class="form-control" maxlength="1000"
+                          @bind="_steps[index]" @bind:event="oninput" @bind:after="MarkDirty"></textarea>
+            </div>
+            <div class="col-md-3">
+                <button type="button" class="btn btn-outline-danger" @onclick="() => RemoveStep(index)">Remove</button>
+            </div>
+        </div>
+    }
+    <button type="button" class="btn btn-outline-secondary mb-4" @onclick="AddStep">Add Step</button>
+
+    <h2>Photo (optional)</h2>
+    <div class="mb-3">
+        @if (_existingPhotoUrl is not null && !_removePhoto)
+        {
+            <p class="form-text">Current photo: @_existingPhotoUrl</p>
+            <button type="button" class="btn btn-outline-danger btn-sm mb-2" @onclick="MarkRemovePhoto">Remove Photo</button>
+        }
+        @if (_removePhoto)
+        {
+            <p class="form-text">Photo will be removed when you save.</p>
+        }
+        <InputFile OnChange="OnPhotoSelected" accept=".jpg,.jpeg,.png,.gif" />
+        @if (_photoFileName is not null)
+        {
+            <p class="form-text">New photo selected: @_photoFileName</p>
+        }
+        @if (_photoError is not null)
+        {
+            <p class="text-danger">@_photoError</p>
+        }
+    </div>
+
+    <button type="button" class="btn btn-primary" @onclick="SaveAsync" disabled="@_isSaving">
+        @(_isSaving ? "Saving..." : "Save Recipe")
+    </button>
+}
+
+@code {
+    private const long MaxPhotoSizeBytes = 5 * 1024 * 1024;
+
+    private static readonly HashSet<string> AllowedPhotoContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/png", "image/gif",
+    };
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private bool _loaded;
+    private bool _notFound;
+
+    private string _title = string.Empty;
+    private string _servings = string.Empty;
+    private List<IngredientRow> _ingredients = [];
+    private List<string> _steps = [];
+
+    private string? _existingPhotoUrl;
+    private bool _removePhoto;
+    private IBrowserFile? _photoFile;
+    private string? _photoFileName;
+    private string? _photoError;
+    private string? _photoWarning;
+
+    private List<string> _errors = [];
+    private bool _isDirty;
+    private bool _isSaving;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var recipe = await RecipeService.GetByIdAsync(Id);
+        if (recipe is null)
+        {
+            _notFound = true;
+            return;
+        }
+
+        _title = recipe.Title;
+        _servings = recipe.Servings.ToString();
+        _ingredients = recipe.Ingredients
+            .Select(i => new IngredientRow
+            {
+                Quantity = i.Quantity?.ToString() ?? string.Empty,
+                Unit = i.Unit ?? string.Empty,
+                Item = i.Item,
+                Note = i.Note ?? string.Empty,
+            })
+            .ToList();
+        if (_ingredients.Count == 0)
+        {
+            _ingredients.Add(new IngredientRow());
+        }
+
+        _steps = recipe.Steps.Select(s => s.Text).ToList();
+        if (_steps.Count == 0)
+        {
+            _steps.Add(string.Empty);
+        }
+
+        _existingPhotoUrl = recipe.Photo?.StoredAt;
+        _loaded = true;
+    }
+
+    private void MarkDirty() => _isDirty = true;
+
+    private void AddIngredient()
+    {
+        _ingredients.Add(new IngredientRow());
+        MarkDirty();
+    }
+
+    private void RemoveIngredient(int index)
+    {
+        _ingredients.RemoveAt(index);
+        MarkDirty();
+    }
+
+    private void AddStep()
+    {
+        _steps.Add(string.Empty);
+        MarkDirty();
+    }
+
+    private void RemoveStep(int index)
+    {
+        _steps.RemoveAt(index);
+        MarkDirty();
+    }
+
+    private void MarkRemovePhoto()
+    {
+        _removePhoto = true;
+        MarkDirty();
+    }
+
+    private void OnPhotoSelected(InputFileChangeEventArgs e)
+    {
+        _photoError = null;
+        var file = e.File;
+
+        if (!AllowedPhotoContentTypes.Contains(file.ContentType))
+        {
+            _photoError = "Invalid file format. Supported: JPG, PNG, GIF";
+            _photoFile = null;
+            _photoFileName = null;
+            return;
+        }
+
+        if (file.Size > MaxPhotoSizeBytes)
+        {
+            _photoError = "File too large (max 5MB)";
+            _photoFile = null;
+            _photoFileName = null;
+            return;
+        }
+
+        _photoFile = file;
+        _photoFileName = file.Name;
+        MarkDirty();
+    }
+
+    private async Task SaveAsync()
+    {
+        _isSaving = true;
+        _errors.Clear();
+        _photoWarning = null;
+
+        Stream? photoStream = null;
+        try
+        {
+            var input = new NewRecipeInput(
+                _title,
+                _servings,
+                _ingredients.Select(row => new NewIngredientInput(row.Quantity, row.Unit, row.Item, row.Note)).ToList(),
+                [.. _steps]);
+
+            PhotoUploadRequest? photoRequest = null;
+            if (_photoFile is not null)
+            {
+                photoStream = _photoFile.OpenReadStream(MaxPhotoSizeBytes);
+                photoRequest = new PhotoUploadRequest(photoStream, _photoFile.Name, _photoFile.ContentType, _photoFile.Size);
+            }
+
+            var result = await RecipeService.UpdateAsync(Id, input, photoRequest, _removePhoto);
+            if (result is null)
+            {
+                _notFound = true;
+                return;
+            }
+
+            if (!result.Succeeded)
+            {
+                _errors = [.. result.Errors];
+                return;
+            }
+
+            _photoWarning = result.Value!.PhotoWarning;
+            _isDirty = false;
+            NavigationManager.NavigateTo($"/recipes/{Id}");
+        }
+        catch (Exception)
+        {
+            _errors = ["Failed to save recipe. Please try again."];
+        }
+        finally
+        {
+            if (photoStream is not null)
+            {
+                await photoStream.DisposeAsync();
+            }
+
+            _isSaving = false;
+        }
+    }
+
+    private async Task OnBeforeInternalNavigationAsync(LocationChangingContext context)
+    {
+        if (!_isDirty)
+        {
+            return;
+        }
+
+        var confirmed = await JSRuntime.InvokeAsync<bool>(
+            "recipeApp.confirmLeave", "You have unsaved changes. Discard?");
+        if (!confirmed)
+        {
+            context.PreventNavigation();
+        }
+    }
+
+    private class IngredientRow
+    {
+        public string Quantity { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+        public string Item { get; set; } = string.Empty;
+        public string Note { get; set; } = string.Empty;
+    }
+}

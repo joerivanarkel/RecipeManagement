@@ -1,0 +1,10 @@
+.cook-mode-step {
+    font-size: 1.5rem;
+    line-height: 1.5;
+}
+
+.cook-mode-checkbox {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 0.5rem;
+}

@@ -138,7 +138,7 @@ else
             </details>
 
             <div class="d-flex gap-2 mb-4">
-                <button type="button" class="btn btn-primary" disabled title="Coming soon">Start Cooking</button>
+                <a class="btn btn-primary" href="@($"recipes/{Id}/cook/{_selectedServings}")">Start Cooking</a>
                 <button type="button" class="btn btn-outline-primary" @onclick="MarkAsCookedAsync" disabled="@_isMarkingCooked">
                     @(_isMarkingCooked ? "Recording..." : "Mark as Cooked")
                 </button>

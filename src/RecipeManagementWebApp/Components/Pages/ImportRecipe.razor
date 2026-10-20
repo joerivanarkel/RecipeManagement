@@ -1,0 +1,157 @@
+@page "/recipes/import"
+@rendermode InteractiveServer
+@using RecipeManagementWebApp.Services
+@inject IUrlRecipeImportService UrlImportService
+@inject ITextRecipeImportService TextImportService
+@inject IPhotoRecipeImportService PhotoImportService
+@inject IImportDraftStore DraftStore
+@inject NavigationManager NavigationManager
+
+<PageTitle>Import Recipe</PageTitle>
+
+<h1>Import a Recipe</h1>
+
+<div class="row g-4">
+    <div class="col-md-4">
+        <h2 class="h4">From a URL</h2>
+        <div class="mb-2">
+            <label for="import-url" class="form-label">Recipe page URL</label>
+            <input id="import-url" class="form-control" placeholder="https://example.com/recipe"
+                   @bind="_url" @bind:event="oninput" />
+        </div>
+        <button type="button" class="btn btn-primary" @onclick="ImportFromUrlAsync" disabled="@_isImportingUrl">
+            @(_isImportingUrl ? "Importing..." : "Import")
+        </button>
+        @if (_urlError is not null)
+        {
+            <p class="text-danger mt-2">@_urlError</p>
+            <a href="recipes/add">Add Manually</a>
+        }
+    </div>
+
+    <div class="col-md-4">
+        <h2 class="h4">From Pasted Text</h2>
+        <div class="mb-2">
+            <label for="import-text" class="form-label">Paste the recipe text</label>
+            <textarea id="import-text" class="form-control" rows="8" @bind="_pastedText" @bind:event="oninput"></textarea>
+        </div>
+        <button type="button" class="btn btn-primary" @onclick="ImportFromTextAsync" disabled="@_isImportingText">
+            @(_isImportingText ? "Importing..." : "Import")
+        </button>
+        @if (_textError is not null)
+        {
+            <p class="text-danger mt-2">@_textError</p>
+        }
+    </div>
+
+    <div class="col-md-4">
+        <h2 class="h4">From a Photo</h2>
+        <div class="mb-2">
+            <label for="import-photo" class="form-label">Photo of a recipe page</label>
+            <InputFile id="import-photo" OnChange="OnPhotoSelected" accept=".jpg,.jpeg,.png" />
+        </div>
+        <button type="button" class="btn btn-primary" @onclick="ImportFromPhotoAsync" disabled="@(_isImportingPhoto || _photoFile is null)">
+            @(_isImportingPhoto ? "Reading photo..." : "Import")
+        </button>
+        @if (_photoError is not null)
+        {
+            <p class="text-danger mt-2">@_photoError</p>
+            <a href="recipes/add">Add Manually</a>
+        }
+    </div>
+</div>
+
+@code {
+    private const long MaxPhotoSizeBytes = 10 * 1024 * 1024;
+
+    private string _url = string.Empty;
+    private bool _isImportingUrl;
+    private string? _urlError;
+
+    private string _pastedText = string.Empty;
+    private bool _isImportingText;
+    private string? _textError;
+
+    private IBrowserFile? _photoFile;
+    private bool _isImportingPhoto;
+    private string? _photoError;
+
+    private async Task ImportFromUrlAsync()
+    {
+        _isImportingUrl = true;
+        _urlError = null;
+        try
+        {
+            var result = await UrlImportService.ImportAsync(_url);
+            if (!result.Succeeded)
+            {
+                _urlError = result.Errors.FirstOrDefault();
+                return;
+            }
+
+            DraftStore.Current = result.Value;
+            NavigationManager.NavigateTo("recipes/import/review");
+        }
+        finally
+        {
+            _isImportingUrl = false;
+        }
+    }
+
+    private async Task ImportFromTextAsync()
+    {
+        _isImportingText = true;
+        _textError = null;
+        try
+        {
+            var result = TextImportService.Import(_pastedText);
+            if (!result.Succeeded)
+            {
+                _textError = result.Errors.FirstOrDefault();
+                return;
+            }
+
+            DraftStore.Current = result.Value;
+            NavigationManager.NavigateTo("recipes/import/review");
+        }
+        finally
+        {
+            _isImportingText = false;
+        }
+    }
+
+    private void OnPhotoSelected(InputFileChangeEventArgs e)
+    {
+        _photoError = null;
+        _photoFile = e.File;
+    }
+
+    private async Task ImportFromPhotoAsync()
+    {
+        if (_photoFile is null)
+        {
+            return;
+        }
+
+        _isImportingPhoto = true;
+        _photoError = null;
+        try
+        {
+            await using var stream = _photoFile.OpenReadStream(MaxPhotoSizeBytes);
+            var request = new PhotoImportRequest(stream, _photoFile.ContentType, _photoFile.Size);
+            var result = await PhotoImportService.ImportAsync(request);
+            if (!result.Succeeded)
+            {
+                _photoError = result.Errors.FirstOrDefault();
+                return;
+            }
+
+            DraftStore.Current = result.Value;
+            NavigationManager.NavigateTo("recipes/import/review");
+        }
+        finally
+        {
+            _isImportingPhoto = false;
+        }
+    }
+}

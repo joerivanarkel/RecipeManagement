@@ -23,6 +23,14 @@ builder.Services.AddScoped<ITagService, TagService>();
 builder.Services.AddScoped<IPantryService, PantryService>();
 builder.Services.AddScoped<ICookLogService, CookLogService>();
 builder.Services.AddScoped<IRecipeMatchingService, RecipeMatchingService>();
+builder.Services.AddHttpClient<IUrlRecipeImportService, UrlRecipeImportService>(client =>
+{
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; RecipeManagementImporter/1.0)");
+});
+builder.Services.AddScoped<ITextRecipeImportService, TextRecipeImportService>();
+builder.Services.AddSingleton<IOcrEngine, NullOcrEngine>();
+builder.Services.AddScoped<IPhotoRecipeImportService, PhotoRecipeImportService>();
+builder.Services.AddScoped<IImportDraftStore, ImportDraftStore>();
 
 var app = builder.Build();
 

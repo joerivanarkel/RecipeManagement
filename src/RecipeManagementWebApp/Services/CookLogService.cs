@@ -46,18 +46,43 @@ public class CookLogService(RecipeDbContext dbContext) : ICookLogService
             return new CookFrequency(0, null, 0, 0);
         }
 
-        // Boundaries are computed in local calendar time (so "this week"/"this month" match what the
-        // user actually experiences), then converted to UTC for comparison against the stored UTC timestamps.
-        var nowLocal = DateTime.Now;
-        var startOfMonthLocal = new DateTime(nowLocal.Year, nowLocal.Month, 1, 0, 0, 0, DateTimeKind.Local);
-        var startOfWeekLocal = nowLocal.Date.AddDays(-(int)nowLocal.DayOfWeek);
-        var startOfMonthUtc = startOfMonthLocal.ToUniversalTime();
-        var startOfWeekUtc = startOfWeekLocal.ToUniversalTime();
+        var (startOfMonthUtc, startOfWeekUtc) = GetLocalCalendarBoundariesInUtc();
 
         return new CookFrequency(
             TotalCount: entries.Count,
             LastCookedAt: entries.Max(),
             FrequencyThisMonth: entries.Count(e => e >= startOfMonthUtc),
             FrequencyThisWeek: entries.Count(e => e >= startOfWeekUtc));
+    }
+
+    public async Task<CookHistorySummary> GetHistoryAsync(Guid recipeId, CancellationToken cancellationToken = default)
+    {
+        var entries = await dbContext.CookLogEntries
+            .Where(c => c.RecipeId == recipeId)
+            .OrderByDescending(c => c.CookedAt)
+            .ToListAsync(cancellationToken);
+
+        if (entries.Count == 0)
+        {
+            return new CookHistorySummary([], 0, 0, 0);
+        }
+
+        var (startOfMonthUtc, startOfWeekUtc) = GetLocalCalendarBoundariesInUtc();
+
+        return new CookHistorySummary(
+            Entries: entries,
+            TotalCount: entries.Count,
+            CountThisMonth: entries.Count(e => e.CookedAt >= startOfMonthUtc),
+            CountThisWeek: entries.Count(e => e.CookedAt >= startOfWeekUtc));
+    }
+
+    /// <summary>Boundaries are computed in local calendar time (so "this week"/"this month" match what the
+    /// user actually experiences), then converted to UTC for comparison against the stored UTC timestamps.</summary>
+    private static (DateTime StartOfMonthUtc, DateTime StartOfWeekUtc) GetLocalCalendarBoundariesInUtc()
+    {
+        var nowLocal = DateTime.Now;
+        var startOfMonthLocal = new DateTime(nowLocal.Year, nowLocal.Month, 1, 0, 0, 0, DateTimeKind.Local);
+        var startOfWeekLocal = nowLocal.Date.AddDays(-(int)nowLocal.DayOfWeek);
+        return (startOfMonthLocal.ToUniversalTime(), startOfWeekLocal.ToUniversalTime());
     }
 }

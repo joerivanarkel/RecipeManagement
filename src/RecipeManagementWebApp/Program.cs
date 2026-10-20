@@ -22,6 +22,7 @@ builder.Services.AddScoped<IRecipeService, RecipeService>();
 builder.Services.AddScoped<ITagService, TagService>();
 builder.Services.AddScoped<IPantryService, PantryService>();
 builder.Services.AddScoped<ICookLogService, CookLogService>();
+builder.Services.AddScoped<IRecipeMatchingService, RecipeMatchingService>();
 
 var app = builder.Build();
 

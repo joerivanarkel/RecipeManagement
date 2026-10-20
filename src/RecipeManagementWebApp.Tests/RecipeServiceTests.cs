@@ -147,6 +147,22 @@ public class RecipeServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSummariesAsync_ReflectsLastCookedAt()
+    {
+        var service = new RecipeService(_dbContext, new StubPhotoStorageService(null));
+        var created = await service.CreateAsync(ValidInput(), null);
+
+        using var cookContext = NewContext();
+        var cookLogService = new CookLogService(cookContext);
+        await cookLogService.RecordCookAsync(created.Value!.Recipe.Id, 2);
+
+        using var summaryContext = NewContext();
+        var summaries = await new RecipeService(summaryContext, new StubPhotoStorageService(null)).GetSummariesAsync();
+
+        Assert.NotNull(Assert.Single(summaries).LastCookedAt);
+    }
+
+    [Fact]
     public async Task GetByIdAsync_ExistingRecipe_ReturnsFullyPopulatedRecipe()
     {
         var service = new RecipeService(_dbContext, new StubPhotoStorageService(null));

@@ -184,7 +184,9 @@ public class RecipeService(RecipeDbContext dbContext, IPhotoStorageService photo
                 r.Title,
                 r.Photo != null ? r.Photo.StoredAt : null,
                 r.Tags.Select(t => t.Name).ToList(),
-                r.IsFavorite))
+                r.IsFavorite,
+                r.Ingredients.Select(i => i.Item).ToList(),
+                dbContext.CookLogEntries.Where(c => c.RecipeId == r.Id).Max(c => (DateTime?)c.CookedAt)))
             .ToListAsync(cancellationToken);
     }
 

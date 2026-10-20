@@ -8,4 +8,6 @@ public interface ICookLogService
     Task<CookLogEntry?> RecordCookAsync(Guid recipeId, int servings, CancellationToken cancellationToken = default);
 
     Task<CookFrequency> GetFrequencyAsync(Guid recipeId, CancellationToken cancellationToken = default);
+
+    Task<CookHistorySummary> GetHistoryAsync(Guid recipeId, CancellationToken cancellationToken = default);
 }

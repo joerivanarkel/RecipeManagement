@@ -1,0 +1,285 @@
+@page "/recipes/{Id:guid}/cook/{Servings:int}"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using RecipeManagementWebApp.Domain
+@using RecipeManagementWebApp.Services
+@inject IRecipeService RecipeService
+@inject ICookLogService CookLogService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Cook Mode</PageTitle>
+
+@if (_notFound)
+{
+    <div class="py-4">
+        <h1>Recipe not found</h1>
+        <a href="/">Back to recipes</a>
+    </div>
+}
+else if (_recipe is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="cook-mode">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <a class="btn btn-outline-secondary btn-sm" href="@($"recipes/{Id}")">Exit</a>
+            @if (_recipe.Steps.Count > 0)
+            {
+                <span class="text-muted">Step @(_currentStepIndex + 1) of @_recipe.Steps.Count</span>
+            }
+        </div>
+
+        <details class="mb-3" open>
+            <summary class="h6" style="cursor: pointer">Ingredients (@_recipe.Ingredients.Count)</summary>
+            <ul class="list-unstyled mb-2" style="max-height: 14rem; overflow-y: auto;">
+                @foreach (var ingredient in _recipe.Ingredients)
+                {
+                    var isChecked = _checkedIngredientIds.Contains(ingredient.Id);
+                    <li class="form-check py-1">
+                        <input type="checkbox" class="form-check-input cook-mode-checkbox" id="@($"ing-{ingredient.Id}")"
+                               checked="@isChecked" @onchange="() => ToggleIngredient(ingredient.Id)" />
+                        <label for="@($"ing-{ingredient.Id}")" class="form-check-label @(isChecked ? "text-decoration-line-through text-muted" : "")">
+                            @IngredientFormatter.FormatLine(ingredient, _recipe.Servings, Servings)
+                        </label>
+                    </li>
+                }
+            </ul>
+            @if (_checkedIngredientIds.Count > 0)
+            {
+                <button type="button" class="btn btn-sm btn-link p-0" @onclick="ResetCheckedIngredients">Reset All</button>
+            }
+        </details>
+
+        @if (_activeTimers.Count > 0)
+        {
+            <div class="mb-3 d-flex flex-wrap gap-2">
+                @foreach (var timer in _activeTimers)
+                {
+                    <div class="border rounded px-2 py-1 d-flex align-items-center gap-2 @(timer.IsFinished ? "border-danger" : "")">
+                        <span class="fw-bold">@FormatTime(timer.RemainingSeconds)</span>
+                        @if (timer.IsFinished)
+                        {
+                            <span class="text-danger">Done!</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => DismissTimer(timer.Id)">Dismiss</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => TogglePause(timer.Id)">
+                                @(timer.IsRunning ? "Pause" : "Resume")
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => CancelTimer(timer.Id)">Cancel</button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        @if (_recipe.Steps.Count == 0)
+        {
+            <div class="text-center py-5">
+                <p class="fs-4">No steps for this recipe</p>
+                <a class="btn btn-outline-secondary" href="@($"recipes/{Id}")">Exit</a>
+            </div>
+        }
+        else
+        {
+            var currentStep = _recipe.Steps[_currentStepIndex];
+
+            <div class="cook-mode-step my-4">
+                <p>@currentStep.Text</p>
+            </div>
+
+            @foreach (var duration in DurationDetector.Detect(currentStep.Text))
+            {
+                <button type="button" class="btn btn-outline-primary me-2 mb-3" @onclick="() => StartTimer(duration)">
+                    Start Timer (@FormatTime(duration.DurationSeconds))
+                </button>
+            }
+
+            <div class="d-flex justify-content-between gap-2 mb-4">
+                <button type="button" class="btn btn-secondary btn-lg" @onclick="PreviousStep" disabled="@(_currentStepIndex == 0)">
+                    Previous
+                </button>
+                @if (_currentStepIndex < _recipe.Steps.Count - 1)
+                {
+                    <button type="button" class="btn btn-primary btn-lg" @onclick="NextStep">Next</button>
+                }
+            </div>
+        }
+
+        @if (_cookError is not null)
+        {
+            <div class="alert alert-danger" role="alert">@_cookError</div>
+        }
+
+        <button type="button" class="btn btn-success btn-lg w-100" @onclick="FinishCookingAsync" disabled="@_isFinishing">
+            @(_isFinishing ? "Recording..." : "Finished Cooking")
+        </button>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [Parameter]
+    public int Servings { get; set; }
+
+    private Recipe? _recipe;
+    private bool _notFound;
+    private int _currentStepIndex;
+    private readonly HashSet<Guid> _checkedIngredientIds = [];
+    private bool _isFinishing;
+    private string? _cookError;
+
+    private readonly List<ActiveTimer> _activeTimers = [];
+    private Timer? _tickTimer;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _recipe = await RecipeService.GetByIdAsync(Id);
+        _notFound = _recipe is null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("recipeApp.requestWakeLock");
+            _tickTimer = new Timer(_ => InvokeAsync(TickTimers), null, 1000, 1000);
+        }
+    }
+
+    private void TickTimers()
+    {
+        var anyChanged = false;
+        foreach (var timer in _activeTimers.Where(t => t.IsRunning && !t.IsFinished))
+        {
+            timer.RemainingSeconds--;
+            anyChanged = true;
+            if (timer.RemainingSeconds <= 0)
+            {
+                timer.RemainingSeconds = 0;
+                timer.IsRunning = false;
+                timer.IsFinished = true;
+                _ = JSRuntime.InvokeVoidAsync("recipeApp.playTimerAlert");
+            }
+        }
+
+        if (anyChanged)
+        {
+            StateHasChanged();
+        }
+    }
+
+    private void PreviousStep()
+    {
+        if (_currentStepIndex > 0)
+        {
+            _currentStepIndex--;
+        }
+    }
+
+    private void NextStep()
+    {
+        if (_recipe is not null && _currentStepIndex < _recipe.Steps.Count - 1)
+        {
+            _currentStepIndex++;
+        }
+    }
+
+    private void ToggleIngredient(Guid ingredientId)
+    {
+        if (!_checkedIngredientIds.Remove(ingredientId))
+        {
+            _checkedIngredientIds.Add(ingredientId);
+        }
+    }
+
+    private void ResetCheckedIngredients() => _checkedIngredientIds.Clear();
+
+    private void StartTimer(DetectedDuration duration)
+    {
+        _activeTimers.Add(new ActiveTimer
+        {
+            DurationSeconds = duration.DurationSeconds,
+            RemainingSeconds = duration.DurationSeconds,
+            IsRunning = true,
+        });
+    }
+
+    private void TogglePause(Guid timerId)
+    {
+        var timer = _activeTimers.FirstOrDefault(t => t.Id == timerId);
+        if (timer is not null)
+        {
+            timer.IsRunning = !timer.IsRunning;
+        }
+    }
+
+    private void CancelTimer(Guid timerId) => _activeTimers.RemoveAll(t => t.Id == timerId);
+
+    private void DismissTimer(Guid timerId) => _activeTimers.RemoveAll(t => t.Id == timerId);
+
+    private static string FormatTime(int totalSeconds)
+    {
+        var time = TimeSpan.FromSeconds(totalSeconds);
+        return time.TotalHours >= 1
+            ? $"{(int)time.TotalHours}:{time.Minutes:D2}:{time.Seconds:D2}"
+            : $"{time.Minutes}:{time.Seconds:D2}";
+    }
+
+    private async Task FinishCookingAsync()
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>(
+            "recipeApp.confirmLeave", "Mark this recipe as cooked?");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _isFinishing = true;
+        _cookError = null;
+        try
+        {
+            var entry = await CookLogService.RecordCookAsync(Id, Servings);
+            if (entry is null)
+            {
+                _cookError = "Could not record cook — recipe no longer exists.";
+                return;
+            }
+
+            await JSRuntime.InvokeVoidAsync("recipeApp.releaseWakeLock");
+            NavigationManager.NavigateTo($"recipes/{Id}");
+        }
+        finally
+        {
+            _isFinishing = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _tickTimer?.Dispose();
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("recipeApp.releaseWakeLock");
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit already gone (e.g. tab closed) -- wake lock is released by the browser automatically (spec 020 FR-005).
+        }
+    }
+
+    private class ActiveTimer
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        public int DurationSeconds { get; set; }
+        public int RemainingSeconds { get; set; }
+        public bool IsRunning { get; set; }
+        public bool IsFinished { get; set; }
+    }
+}

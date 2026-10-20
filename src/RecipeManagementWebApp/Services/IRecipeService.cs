@@ -22,4 +22,7 @@ public interface IRecipeService
 
     /// <returns>false if no recipe with that id existed</returns>
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <returns>the new favourite state, or null if no recipe with that id existed</returns>
+    Task<bool?> ToggleFavoriteAsync(Guid id, CancellationToken cancellationToken = default);
 }

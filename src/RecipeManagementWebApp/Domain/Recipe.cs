@@ -9,6 +9,8 @@ public class Recipe
     public List<Step> Steps { get; set; } = [];
     public Guid? PhotoId { get; set; }
     public Photo? Photo { get; set; }
+    public List<Tag> Tags { get; set; } = [];
+    public bool IsFavorite { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

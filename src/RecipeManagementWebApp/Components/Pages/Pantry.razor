@@ -1,0 +1,168 @@
+@page "/pantry"
+@rendermode InteractiveServer
+@using RecipeManagementWebApp.Domain
+@using RecipeManagementWebApp.Services
+@inject IPantryService PantryService
+
+<PageTitle>Pantry</PageTitle>
+
+<h1>Pantry</h1>
+
+@if (_errors.Count > 0)
+{
+    <div class="alert alert-danger" role="alert">
+        <ul class="mb-0">
+            @foreach (var error in _errors)
+            {
+                <li>@error</li>
+            }
+        </ul>
+    </div>
+}
+
+<div class="row g-2 mb-4 align-items-end">
+    <div class="col-md-3">
+        <label for="category" class="form-label">Category</label>
+        <select id="category" class="form-select" @bind="_category">
+            @foreach (var category in Enum.GetValues<PantryCategory>())
+            {
+                <option value="@category">@category</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label for="item-name" class="form-label">Item</label>
+        <input id="item-name" class="form-control" maxlength="100" @bind="_itemName" @bind:event="oninput" />
+    </div>
+    <div class="col-md-3">
+        <label for="quantity" class="form-label">Quantity</label>
+        <input id="quantity" class="form-control" maxlength="100" placeholder="e.g. 2 lbs" @bind="_quantity" @bind:event="oninput" />
+    </div>
+    <div class="col-md-3">
+        <button type="button" class="btn btn-primary" @onclick="AddItemAsync" disabled="@_isAdding">
+            @(_isAdding ? "Adding..." : "Add to Pantry")
+        </button>
+    </div>
+</div>
+
+@if (_items is null)
+{
+    <p>Loading...</p>
+}
+else if (_items.Count == 0)
+{
+    <div class="text-center py-5">
+        <p class="fs-5">Your pantry is empty. Add items to get recipe suggestions.</p>
+    </div>
+}
+else
+{
+    @foreach (var group in _items.GroupBy(i => i.Category).OrderBy(g => g.Key))
+    {
+        <h2>@group.Key</h2>
+        <ul class="list-group mb-4">
+            @foreach (var item in group)
+            {
+                <li class="list-group-item d-flex align-items-center gap-2">
+                    <span class="flex-grow-1">@item.ItemName</span>
+                    @if (_editingId == item.Id)
+                    {
+                        <input class="form-control form-control-sm" style="max-width: 10rem" maxlength="100"
+                               @bind="_editQuantity" @bind:event="oninput" />
+                        <button type="button" class="btn btn-sm btn-primary" @onclick="() => SaveQuantityAsync(item.Id)">Save</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelEdit">Cancel</button>
+                    }
+                    else
+                    {
+                        <span class="text-muted">@item.Quantity</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => StartEdit(item)">Edit</button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => DeleteItemAsync(item.Id)">Delete</button>
+                    }
+                </li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    private IReadOnlyList<PantryItem>? _items;
+
+    private PantryCategory _category = PantryCategory.Fridge;
+    private string _itemName = string.Empty;
+    private string _quantity = string.Empty;
+    private bool _isAdding;
+    private List<string> _errors = [];
+
+    private Guid? _editingId;
+    private string _editQuantity = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _items = await PantryService.GetAllAsync();
+    }
+
+    private async Task AddItemAsync()
+    {
+        _isAdding = true;
+        _errors.Clear();
+        try
+        {
+            var input = new NewPantryItemInput(_category, _itemName, _quantity);
+            var result = await PantryService.AddAsync(input);
+            if (!result.Succeeded)
+            {
+                _errors = [.. result.Errors];
+                return;
+            }
+
+            _itemName = string.Empty;
+            _quantity = string.Empty;
+            _items = await PantryService.GetAllAsync();
+        }
+        finally
+        {
+            _isAdding = false;
+        }
+    }
+
+    private void StartEdit(PantryItem item)
+    {
+        _editingId = item.Id;
+        _editQuantity = item.Quantity;
+    }
+
+    private void CancelEdit()
+    {
+        _editingId = null;
+        _editQuantity = string.Empty;
+    }
+
+    private async Task SaveQuantityAsync(Guid id)
+    {
+        _errors.Clear();
+
+        var result = await PantryService.UpdateQuantityAsync(id, _editQuantity);
+        if (result is null)
+        {
+            _errors = ["This item no longer exists."];
+            _items = await PantryService.GetAllAsync();
+            CancelEdit();
+            return;
+        }
+
+        if (!result.Succeeded)
+        {
+            _errors = [.. result.Errors];
+            return;
+        }
+
+        _items = await PantryService.GetAllAsync();
+        CancelEdit();
+    }
+
+    private async Task DeleteItemAsync(Guid id)
+    {
+        await PantryService.DeleteAsync(id);
+        _items = await PantryService.GetAllAsync();
+    }
+}

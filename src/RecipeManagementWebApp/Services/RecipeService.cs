@@ -179,7 +179,12 @@ public class RecipeService(RecipeDbContext dbContext, IPhotoStorageService photo
     {
         return await dbContext.Recipes
             .OrderByDescending(r => r.CreatedAt)
-            .Select(r => new RecipeSummary(r.Id, r.Title, r.Photo != null ? r.Photo.StoredAt : null, Array.Empty<string>()))
+            .Select(r => new RecipeSummary(
+                r.Id,
+                r.Title,
+                r.Photo != null ? r.Photo.StoredAt : null,
+                r.Tags.Select(t => t.Name).ToList(),
+                r.IsFavorite))
             .ToListAsync(cancellationToken);
     }
 
@@ -211,5 +216,19 @@ public class RecipeService(RecipeDbContext dbContext, IPhotoStorageService photo
         }
 
         return true;
+    }
+
+    public async Task<bool?> ToggleFavoriteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var recipe = await dbContext.Recipes.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+        if (recipe is null)
+        {
+            return null;
+        }
+
+        // Favouriting is not a content edit (spec 011 domain rule), so UpdatedAt is intentionally left untouched.
+        recipe.IsFavorite = !recipe.IsFavorite;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return recipe.IsFavorite;
     }
 }

@@ -125,6 +125,46 @@ persistence), not the model's own structure.
   — the one place an actual .NET exception (e.g. unexpected I/O/DB failure)
   is caught in the UI layer, deliberately generic rather than surfacing
   exception details to the user.
+- **The `Result<T>` pattern is reused consistently by the newer tag/pantry/cook-log
+  feature set**, not just by recipes:
+  - **`PantryItemValidator`** (`src/RecipeManagementWebApp/Services/PantryItemValidator.cs`,
+    spec 012 FR-002/FR-003) follows the exact same shape as `RecipeValidator`: a
+    static class with `MaxLength` constants, trimming raw input, accumulating
+    *all* violations into one error list, and returning
+    `Result<ValidatedPantryItem>` via `Success`/`Failure`. It is a smaller,
+    flat validator (two required/max-length string fields) rather than the
+    nested per-row validation `RecipeValidator` does for ingredients/steps, but
+    the conventions (trim-then-validate, required + max-length checks, single
+    accumulated error list, no first-failure short-circuit) are consistent.
+  - **`TagService.AddTagAsync`** (`src/RecipeManagementWebApp/Services/TagService.cs`)
+    blends two error-handling idioms rather than delegating to a separate
+    validator type: it returns a nullable `Result<IReadOnlyList<string>>?` —
+    `null` signals "recipe not found" (a not-found/absence case), while a
+    non-null `Result.Failure(...)` signals a validation failure (empty tag,
+    tag too long), inlined directly in the service method instead of a
+    dedicated `TagValidator`. `TagService.RemoveTagAsync` uses a third idiom
+    again: a plain `bool` return for found/removed vs. not-found, with no
+    `Result<T>` involved at all. This is a deviation from the Recipe feature's
+    convention of a single dedicated validator type plus `Result<T>`
+    end-to-end — tag operations mix `Result<T>?`, inline validation, and bare
+    `bool` across three methods in the same service.
+  - **`CookLogService`** (`src/RecipeManagementWebApp/Services/CookLogService.cs`)
+    does not use `Result<T>` at all: `RecordCookAsync` returns a nullable
+    `CookLogEntry?` (`null` = recipe not found, matching the "null for
+    not-found" half of `TagService`'s convention), and `GetFrequencyAsync`
+    always returns a `CookFrequency` value object (zeroed out when there are
+    no entries) with no failure channel, since there is no user input to
+    validate in that path.
+  - Net effect: the **"no-input-found" case is consistently signalled via a
+    nullable return** (`Result<T>?` in `TagService`, `CookLogEntry?` in
+    `CookLogService`) across the new services, but **validation-failure
+    reporting is not uniform** — `RecipeValidator`/`PantryItemValidator` share
+    one static-validator-plus-`Result<T>` convention, while `TagService`
+    inlines its (much smaller) validation logic directly in the service
+    rather than extracting a `TagValidator`. No new code was found throwing
+    custom exceptions for expected/business-rule failures; exceptions remain
+    reserved for genuinely unexpected failures, consistent with the Recipe
+    feature.
 - **Unhandled-exception / HTTP-error pages**: `Program.cs` registers
   `app.UseExceptionHandler("/Error", createScopeForErrors: true)`
   (non-Development only), backed by `Components/Pages/Error.razor`, which
@@ -160,7 +200,11 @@ persistence), not the model's own structure.
 - `src/RecipeManagementWebApp.Tests/` is an xUnit test project covering
   `RecipeValidatorTests`, `PhotoStorageServiceTests`, `IngredientFormatterTests`,
   and `RecipeServiceTests` — unit/service-level tests around the validation
-  and persistence logic described above.
+  and persistence logic described above — plus, for the tag/pantry/cook-log
+  feature set, `TagServiceTests`, `PantryServiceTests`, and
+  `CookLogServiceTests`, following the same unit/service-level testing
+  convention (no dedicated `TagValidatorTests` exists, consistent with
+  `TagService` inlining its validation rather than extracting a validator).
 - No integration or end-to-end tests (e.g. bUnit component tests, Playwright)
   were found; UI components (`AddRecipe.razor`, `Home.razor`,
   `RecipeDetail.razor`) are not covered by automated tests.

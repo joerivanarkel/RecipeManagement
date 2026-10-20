@@ -143,6 +143,7 @@ public class RecipeServiceTests : IDisposable
         var withoutPhotoSummary = Assert.Single(summaries, s => s.Title == "Simple Pasta");
         Assert.Null(withoutPhotoSummary.PhotoUrl);
         Assert.All(summaries, s => Assert.Empty(s.Tags));
+        Assert.All(summaries, s => Assert.False(s.IsFavorite));
     }
 
     [Fact]

@@ -3,6 +3,8 @@
 @using RecipeManagementWebApp.Domain
 @using RecipeManagementWebApp.Services
 @inject IRecipeService RecipeService
+@inject ITagService TagService
+@inject ICookLogService CookLogService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
 
@@ -35,12 +37,60 @@ else
             }
         </div>
         <div class="col-md-7">
-            <h1>@_recipe.Title</h1>
+            <div class="d-flex align-items-start gap-2">
+                <h1 class="flex-grow-1">@_recipe.Title</h1>
+                <button type="button"
+                        class="btn btn-link fs-3 p-0 text-decoration-none @(_recipe.IsFavorite ? "text-warning" : "text-muted")"
+                        title="@(_recipe.IsFavorite ? "Unfavourite" : "Favourite")"
+                        aria-label="@(_recipe.IsFavorite ? "Remove from favourites" : "Add to favourites")"
+                        @onclick="ToggleFavoriteAsync" disabled="@_isTogglingFavorite">
+                    @(_recipe.IsFavorite ? "★" : "☆")
+                </button>
+            </div>
 
             @if (_deleteError is not null)
             {
                 <div class="alert alert-danger" role="alert">@_deleteError</div>
             }
+
+            @if (_recipe.Tags.Count > 0)
+            {
+                <div class="mb-3">
+                    @foreach (var tag in _recipe.Tags)
+                    {
+                        <span class="badge rounded-pill text-bg-secondary me-1 mb-1">
+                            @tag.Name
+                            <button type="button" class="btn-close btn-close-white ms-1" style="font-size: 0.6rem"
+                                    aria-label="@($"Remove tag {tag.Name}")" @onclick="() => RemoveTagAsync(tag.Id)"></button>
+                        </span>
+                    }
+                </div>
+            }
+
+            <div class="mb-3 position-relative" style="max-width: 20rem">
+                <label for="tag-input" class="form-label">Add Tag</label>
+                <div class="d-flex gap-2">
+                    <input id="tag-input" class="form-control" maxlength="50" placeholder="e.g. vegetarian"
+                           @bind="_newTag" @bind:event="oninput" @onfocus="() => _showSuggestions = true" />
+                    <button type="button" class="btn btn-outline-secondary text-nowrap" @onclick="AddTagAsync" disabled="@_isAddingTag">Add Tag</button>
+                </div>
+                @if (_showSuggestions && TagSuggestions.Count > 0)
+                {
+                    <ul class="list-group position-absolute w-100 shadow-sm" style="z-index: 10;">
+                        @foreach (var suggestion in TagSuggestions)
+                        {
+                            <li class="list-group-item list-group-item-action" style="cursor: pointer"
+                                @onclick="() => SelectSuggestion(suggestion)">
+                                @suggestion
+                            </li>
+                        }
+                    </ul>
+                }
+                @if (_tagError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@_tagError</p>
+                }
+            </div>
 
             <div class="mb-3">
                 <label for="servings-slider" class="form-label">Servings: @_selectedServings</label>
@@ -48,8 +98,26 @@ else
                        @bind="_selectedServings" @bind:event="oninput" style="max-width: 20rem" />
             </div>
 
+            @if (_cookConfirmation is not null)
+            {
+                <div class="alert alert-success" role="alert">@_cookConfirmation</div>
+            }
+
+            @if (_favoriteError is not null)
+            {
+                <div class="alert alert-danger" role="alert">@_favoriteError</div>
+            }
+
+            @if (_cookFrequency is not null)
+            {
+                <p class="text-muted">@FormatCookFrequency(_cookFrequency)</p>
+            }
+
             <div class="d-flex gap-2 mb-4">
                 <button type="button" class="btn btn-primary" disabled title="Coming soon">Start Cooking</button>
+                <button type="button" class="btn btn-outline-primary" @onclick="MarkAsCookedAsync" disabled="@_isMarkingCooked">
+                    @(_isMarkingCooked ? "Recording..." : "Mark as Cooked")
+                </button>
                 <a class="btn btn-outline-secondary" href="@($"recipes/{Id}/edit")">Edit Recipe</a>
                 <button type="button" class="btn btn-outline-danger" @onclick="DeleteAsync" disabled="@_isDeleting">
                     @(_isDeleting ? "Deleting..." : "Delete Recipe")
@@ -92,6 +160,27 @@ else
     private int _maxServings = 20;
     private bool _isDeleting;
     private string? _deleteError;
+    private bool _isTogglingFavorite;
+    private string? _favoriteError;
+    private CookFrequency? _cookFrequency;
+
+    private string _newTag = string.Empty;
+    private bool _isAddingTag;
+    private string? _tagError;
+    private bool _showSuggestions;
+    private IReadOnlyList<string> _allTagNames = [];
+
+    private bool _isMarkingCooked;
+    private string? _cookConfirmation;
+
+    private IReadOnlyList<string> TagSuggestions =>
+        string.IsNullOrWhiteSpace(_newTag)
+            ? []
+            : _allTagNames
+                .Where(name => name.Contains(_newTag.Trim(), StringComparison.OrdinalIgnoreCase)
+                    && !_recipe!.Tags.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+                .Take(5)
+                .ToList();
 
     protected override async Task OnParametersSetAsync()
     {
@@ -102,11 +191,155 @@ else
         {
             _selectedServings = _recipe.Servings;
             _maxServings = Math.Max(20, _recipe.Servings);
+            _allTagNames = await TagService.GetAllTagNamesAsync();
+            _cookFrequency = await CookLogService.GetFrequencyAsync(Id);
         }
+    }
+
+    private static string FormatCookFrequency(CookFrequency frequency)
+    {
+        if (frequency.TotalCount == 0)
+        {
+            return "Never cooked";
+        }
+
+        var timesWord = frequency.TotalCount == 1 ? "time" : "times";
+        var lastCooked = FormatRelativeDate(frequency.LastCookedAt!.Value);
+        return $"Cooked {frequency.TotalCount} {timesWord} · Last cooked {lastCooked}";
+    }
+
+    private static string FormatRelativeDate(DateTime cookedAt)
+    {
+        var days = (DateTime.UtcNow.Date - cookedAt.Date).Days;
+        return days switch
+        {
+            0 => "today",
+            1 => "yesterday",
+            _ => $"{days} days ago",
+        };
     }
 
     private string FormatIngredient(Ingredient ingredient) =>
         IngredientFormatter.FormatLine(ingredient, _recipe!.Servings, _selectedServings);
+
+    private async Task ToggleFavoriteAsync()
+    {
+        _isTogglingFavorite = true;
+        _favoriteError = null;
+        try
+        {
+            var newState = await RecipeService.ToggleFavoriteAsync(Id);
+            if (newState is not null)
+            {
+                _recipe!.IsFavorite = newState.Value;
+            }
+            else
+            {
+                _favoriteError = "Recipe no longer exists.";
+            }
+        }
+        finally
+        {
+            _isTogglingFavorite = false;
+        }
+    }
+
+    private async Task AddTagAsync()
+    {
+        _tagError = null;
+        _showSuggestions = false;
+        var name = _newTag.Trim();
+        if (name.Length == 0)
+        {
+            return;
+        }
+
+        _isAddingTag = true;
+        try
+        {
+            var result = await TagService.AddTagAsync(Id, name);
+            if (result is null)
+            {
+                _tagError = "Recipe no longer exists.";
+                return;
+            }
+
+            if (!result.Succeeded)
+            {
+                _tagError = result.Errors.FirstOrDefault() ?? "Failed to add tag.";
+                return;
+            }
+
+            _recipe = await RecipeService.GetByIdAsync(Id);
+            if (_recipe is null)
+            {
+                _notFound = true;
+                return;
+            }
+
+            _allTagNames = await TagService.GetAllTagNamesAsync();
+            _newTag = string.Empty;
+        }
+        finally
+        {
+            _isAddingTag = false;
+        }
+    }
+
+    private void SelectSuggestion(string suggestion)
+    {
+        _newTag = suggestion;
+        _showSuggestions = false;
+    }
+
+    private async Task RemoveTagAsync(Guid tagId)
+    {
+        _tagError = null;
+        var removed = await TagService.RemoveTagAsync(Id, tagId);
+        if (!removed)
+        {
+            _tagError = "That tag was already removed.";
+            _recipe = await RecipeService.GetByIdAsync(Id);
+            if (_recipe is null)
+            {
+                _notFound = true;
+            }
+
+            return;
+        }
+
+        _recipe!.Tags.RemoveAll(t => t.Id == tagId);
+        _allTagNames = await TagService.GetAllTagNamesAsync();
+    }
+
+    private async Task MarkAsCookedAsync()
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>(
+            "recipeApp.confirmLeave", "Mark this recipe as cooked?");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _isMarkingCooked = true;
+        _cookConfirmation = null;
+        try
+        {
+            var entry = await CookLogService.RecordCookAsync(Id, _selectedServings);
+            _cookConfirmation = entry is not null
+                ? "Marked as cooked. Enjoy!"
+                : "Could not record cook — recipe no longer exists.";
+
+            if (entry is not null)
+            {
+                _cookFrequency = await CookLogService.GetFrequencyAsync(Id);
+            }
+        }
+        finally
+        {
+            _isMarkingCooked = false;
+        }
+    }
 
     private async Task DeleteAsync()
     {

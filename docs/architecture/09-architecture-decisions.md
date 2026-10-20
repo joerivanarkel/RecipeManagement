@@ -12,6 +12,8 @@
 | ADR-03 | Local filesystem photo storage (not cloud blob storage)        | Accepted | Undated¹   |
 | ADR-04 | `Result<T>` for error/validation signaling instead of exceptions | Accepted | Undated¹ |
 | ADR-05 | Structured ingredients (quantity/unit/item/note) vs. free text  | Accepted | Undated¹   |
+| ADR-06 | Tags as per-recipe rows (owned 1:many), not a shared Tag catalog | Accepted | Undated¹   |
+| ADR-07 | Cook log as an immutable audit trail, decoupled from Recipe via nullable FK + `SetNull` | Accepted | Undated¹ |
 
 ¹ No dated commit or design doc records when these decisions were made;
   git history for this repo is scaffolding-only (see below). Dates are
@@ -131,3 +133,51 @@
   beyond the code itself — it is reflected consistently in both the
   domain model and the spec (`docs/specs/001-add-recipe-manually.md`),
   suggesting it was a deliberate choice rather than an accidental default.
+
+### ADR-06: Tags modeled as per-recipe rows, not a shared tag catalog
+
+- **Context:** `Domain/Tag.cs` is a simple entity with `Id`, `RecipeId`,
+  and `Name` — there is no unique constraint or lookup table for tag
+  names, and no join table. `RecipeDbContext.OnModelCreating` wires
+  `Recipe.Tags` via `HasMany(r => r.Tags).WithOne().HasForeignKey(t =>
+  t.RecipeId).OnDelete(DeleteBehavior.Cascade)`, i.e. a plain one-to-many
+  from `Recipe` to `Tag`, cascade-deleted with the recipe. This matches
+  `docs/specs/008-tag-recipes.md`, which describes free-form, per-recipe
+  tagging rather than a shared/reusable tag vocabulary.
+- **Decision:** Represent tags as rows owned by a single recipe (one tag
+  row per recipe-tag pairing, duplicated by name across recipes) instead
+  of a shared `Tag` catalog with a many-to-many join table.
+- **Consequences:** Much simpler schema and querying (no join table, no
+  dedup/merge logic for tag names); tags cannot be renamed or managed
+  globally across recipes (renaming a tag means editing it on every
+  recipe it appears on), and there's no built-in protection against
+  near-duplicate tag names (e.g. "Vegan" vs "vegan") across recipes; tags
+  are correctly removed when their owning recipe is deleted via cascade.
+- **Rationale not documented**; decision inferred from current
+  implementation and spec 008.
+
+### ADR-07: Cook log as an immutable audit trail, decoupled from Recipe
+
+- **Context:** `Domain/CookLogEntry.cs` models `RecipeId` as nullable
+  (`Guid?`) rather than required, and is its own top-level entity (not
+  nested under `Recipe`), tracking `CookedAt` and `Servings`. In
+  `RecipeDbContext.OnModelCreating`, the relationship is configured as
+  `entity.HasOne<Recipe>().WithMany().HasForeignKey(c =>
+  c.RecipeId).OnDelete(DeleteBehavior.SetNull)`, with an explicit code
+  comment: *"Cook log is an immutable audit trail ... so recipe deletion
+  must not cascade-delete history — RecipeId is nullable with SetNull
+  instead."* This aligns with `docs/specs/023-mark-recipe-cooked.md`.
+- **Decision:** Treat cook log entries as a standalone, append-only
+  history independent of the `Recipe` aggregate's lifecycle: deleting a
+  recipe detaches its cook log entries (`RecipeId` set to `null`) instead
+  of deleting them.
+- **Consequences:** Cook history survives recipe deletion, satisfying the
+  "preserve history" intent in spec 023; orphaned cook log entries (with
+  `RecipeId == null`) must be handled explicitly by any UI/service code
+  that reads the log (e.g. showing "deleted recipe" instead of a title);
+  this is a deliberate deviation from the cascade-delete pattern used
+  elsewhere in the same `DbContext` (Ingredients, Steps, Photo, Tags all
+  cascade with their recipe).
+- **Rationale is documented inline in code** (`RecipeDbContext.cs`
+  comment above the `CookLogEntry` mapping), unlike most other entries in
+  this log — this is the clearest evidenced decision in this set.

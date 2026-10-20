@@ -20,12 +20,29 @@ else if (_recipes.Count == 0)
 }
 else
 {
+    <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox" role="switch" id="favouritesOnlyToggle" @bind="_favouritesOnly" />
+        <label class="form-check-label" for="favouritesOnlyToggle">Favourites only</label>
+    </div>
+
+    @if (_favouritesOnly && _visibleRecipes.Count == 0)
+    {
+        <div class="text-center py-5">
+            <p class="fs-5">No favourites yet — tap the star on a recipe to add one</p>
+        </div>
+    }
+    else
+    {
     <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
-        @foreach (var recipe in _recipes)
+        @foreach (var recipe in _visibleRecipes)
         {
             var (visibleTags, moreCount) = SplitTags(recipe.Tags);
             <div class="col">
-                <a class="recipe-card card h-100 text-decoration-none text-reset" href="@($"recipes/{recipe.Id}")">
+                <a class="recipe-card card h-100 text-decoration-none text-reset position-relative" href="@($"recipes/{recipe.Id}")">
+                    @if (recipe.IsFavorite)
+                    {
+                        <span class="recipe-card-favorite" title="Favourite" aria-label="Favourite recipe">★</span>
+                    }
                     @if (recipe.PhotoUrl is not null)
                     {
                         <img src="@recipe.PhotoUrl" class="card-img-top recipe-card-photo" alt="@recipe.Title" loading="lazy" />
@@ -56,12 +73,19 @@ else
             </div>
         }
     </div>
+    }
 }
 
 @code {
     private const int MaxVisibleTags = 5;
 
     private IReadOnlyList<RecipeSummary>? _recipes;
+    private bool _favouritesOnly;
+
+    private IReadOnlyList<RecipeSummary> _visibleRecipes =>
+        _favouritesOnly
+            ? _recipes!.Where(r => r.IsFavorite).ToList()
+            : _recipes!;
 
     protected override async Task OnInitializedAsync()
     {

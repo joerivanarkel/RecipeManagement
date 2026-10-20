@@ -22,7 +22,9 @@ front of Kestrel.
    |      |      - Serves browser over WebSocket (SignalR circuit)
    |      |
    |      +-- EF Core -> SQLite file: App_Data/recipes.db
-   |      |      (Database.EnsureCreated() at startup; no migrations)
+   |      |      (Recipes, Ingredients, Steps, Photos, Tags, PantryItems,
+   |      |      CookLogEntries tables; Database.EnsureCreated() at
+   |      |      startup; no migrations)
    |      |
    |      +-- Local filesystem: wwwroot/uploads
    |             (served at request path /uploads)
@@ -34,6 +36,8 @@ front of Kestrel.
 | Node | Description |
 | ---- | ----------- |
 | Developer machine | The only environment the system currently runs in. Hosts the Kestrel process, the SQLite database file (`App_Data/recipes.db`), and the uploaded-photo files (`wwwroot/uploads`). No separate app server, database server, or storage tier exists — everything is co-located in one process on one machine. |
+
+Note: the Tag/Favourite, PantryItem, and CookLogEntry features (`Data/RecipeDbContext.cs`) add new tables (`Tags`, `PantryItems`, `CookLogEntries`) to the same `App_Data/recipes.db` SQLite file via `EnsureCreated()` — no new database, file, or storage path was introduced, so the deployment topology above is unchanged.
 
 **Launch profiles** (from `Properties/launchSettings.json`), both
 `ASPNETCORE_ENVIRONMENT=Development` only — there is no Staging or
@@ -86,5 +90,5 @@ tiers). Revisit this section if/when a real multi-node deployment exists.
 | -------------- | ------------------- |
 | Blazor Server UI (`Components/Layout`, `Components/Pages`) | Developer machine (Kestrel process) |
 | `Services/` (`IRecipeService`/`RecipeService`, `IPhotoStorageService`/`PhotoStorageService`, `RecipeValidator`, `IngredientFormatter`) | Developer machine (Kestrel process) |
-| `Data/RecipeDbContext` + SQLite database (`App_Data/recipes.db`) | Developer machine (local disk, same process) |
+| `Data/RecipeDbContext` + SQLite database (`App_Data/recipes.db`, tables: Recipes, Ingredients, Steps, Photos, Tags, PantryItems, CookLogEntries) | Developer machine (local disk, same process) |
 | Uploaded photo files (`wwwroot/uploads`, served at `/uploads`) | Developer machine (local disk, served by the same Kestrel process) |

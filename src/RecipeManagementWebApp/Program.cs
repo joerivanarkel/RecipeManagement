@@ -19,6 +19,9 @@ builder.Services.Configure<PhotoStorageOptions>(
     builder.Configuration.GetSection(PhotoStorageOptions.SectionName));
 builder.Services.AddScoped<IPhotoStorageService, PhotoStorageService>();
 builder.Services.AddScoped<IRecipeService, RecipeService>();
+builder.Services.AddScoped<ITagService, TagService>();
+builder.Services.AddScoped<IPantryService, PantryService>();
+builder.Services.AddScoped<ICookLogService, CookLogService>();
 
 var app = builder.Build();
 

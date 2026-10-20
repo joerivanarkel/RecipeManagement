@@ -12,3 +12,14 @@
     background-color: #e9ecef;
     color: #6c757d;
 }
+
+.recipe-card-favorite {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 1;
+    color: #ffc107;
+    font-size: 1.5rem;
+    line-height: 1;
+    text-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+}

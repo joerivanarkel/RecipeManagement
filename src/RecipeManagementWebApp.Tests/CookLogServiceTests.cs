@@ -109,6 +109,38 @@ public class CookLogServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetHistoryAsync_NoEntries_ReturnsEmptyWithZeroedStats()
+    {
+        var recipeId = await CreateRecipeAsync();
+        var service = new CookLogService(_dbContext);
+
+        var history = await service.GetHistoryAsync(recipeId);
+
+        Assert.Empty(history.Entries);
+        Assert.Equal(0, history.TotalCount);
+        Assert.Equal(0, history.CountThisMonth);
+        Assert.Equal(0, history.CountThisWeek);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_MultipleEntries_OrderedMostRecentFirst()
+    {
+        var recipeId = await CreateRecipeAsync();
+        var service = new CookLogService(_dbContext);
+        await service.RecordCookAsync(recipeId, 2);
+        await Task.Delay(10);
+        await service.RecordCookAsync(recipeId, 4);
+
+        var history = await service.GetHistoryAsync(recipeId);
+
+        Assert.Equal(2, history.TotalCount);
+        Assert.Equal(2, history.Entries.Count);
+        Assert.True(history.Entries[0].CookedAt >= history.Entries[1].CookedAt);
+        Assert.Equal(4, history.Entries[0].Servings);
+        Assert.Equal(2, history.Entries[1].Servings);
+    }
+
+    [Fact]
     public async Task RecipeDeletion_PreservesCookLogWithNullRecipeId()
     {
         var recipeId = await CreateRecipeAsync();

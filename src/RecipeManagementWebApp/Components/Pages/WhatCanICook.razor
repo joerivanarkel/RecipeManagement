@@ -1,0 +1,197 @@
+@page "/what-can-i-cook"
+@rendermode InteractiveServer
+@using RecipeManagementWebApp.Services
+@inject IRecipeMatchingService MatchingService
+@inject IPantryService PantryService
+@inject IRecipeService RecipeService
+
+<PageTitle>What Can I Cook</PageTitle>
+
+<h1>What Can I Cook</h1>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else if (_noRecipesAtAll)
+{
+    <div class="text-center py-5">
+        <p class="fs-5">You have no recipes yet. Add some recipes to get started.</p>
+        <a class="btn btn-primary" href="recipes/add">Add a recipe</a>
+    </div>
+}
+else
+{
+    <div class="mb-3" style="max-width: 32rem">
+        <label for="quick-entry" class="form-label">Quick ingredients (not saved to your pantry)</label>
+        <div class="d-flex gap-2">
+            <input id="quick-entry" class="form-control" placeholder="e.g. chicken, cabbage, rice"
+                   @bind="_quickEntryText" @bind:event="oninput" @bind:after="RecalculateAsync" />
+            <button type="button" class="btn btn-outline-secondary text-nowrap" @onclick="ClearQuickEntryAsync">Clear</button>
+        </div>
+    </div>
+
+    @if (_pantryEmptyAndNoQuickEntry)
+    {
+        <div class="text-center py-5">
+            <p class="fs-5">Your pantry is empty. Add items to see recipe suggestions.</p>
+            <a class="btn btn-primary" href="pantry">Go to Pantry</a>
+        </div>
+    }
+    else
+    {
+        @if (_availableTags.Count > 0)
+        {
+            <div class="mb-3">
+                @foreach (var tag in _availableTags)
+                {
+                    var isSelected = _selectedTags.Contains(tag);
+                    <button type="button"
+                            class="btn btn-sm rounded-pill me-1 mb-1 @(isSelected ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="() => ToggleTag(tag)">
+                        @tag
+                    </button>
+                }
+                @if (_selectedTags.Count > 0)
+                {
+                    <button type="button" class="btn btn-sm btn-link" @onclick="ClearTagFilters">Clear filters</button>
+                }
+            </div>
+        }
+
+        <div class="mb-4">
+            <button type="button" class="btn btn-primary" @onclick="SurpriseMe" disabled="@(_visibleRanking.Count == 0)">
+                🎲 Surprise Me
+            </button>
+            @if (_surpriseError is not null)
+            {
+                <p class="text-danger mt-2">@_surpriseError</p>
+            }
+            @if (_surprisePick is not null)
+            {
+                <div class="alert alert-info mt-2 d-flex justify-content-between align-items-center">
+                    <div>
+                        @if (_surpriseFallbackMessage is not null)
+                        {
+                            <p class="mb-1 fst-italic">@_surpriseFallbackMessage</p>
+                        }
+                        <strong>@_surprisePick.Recipe.Title</strong>
+                        <span class="text-muted">
+                            (@_surprisePick.Recipe.AvailableCount of @_surprisePick.Recipe.TotalCount available)
+                        </span>
+                    </div>
+                    <a class="btn btn-sm btn-primary" href="@($"recipes/{_surprisePick.Recipe.RecipeId}")">View Recipe</a>
+                </div>
+            }
+        </div>
+
+        @if (_visibleRanking.Count == 0)
+        {
+            <div class="text-center py-5">
+                <p class="fs-5">No recipes match these tags</p>
+            </div>
+        }
+        else
+        {
+            <div class="row row-cols-1 row-cols-md-2 g-3">
+                @foreach (var recipe in _visibleRanking)
+                {
+                    <div class="col">
+                        <a class="card h-100 text-decoration-none text-reset" href="@($"recipes/{recipe.RecipeId}")">
+                            <div class="card-body">
+                                <h5 class="card-title">@recipe.Title</h5>
+                                <p class="card-text">@recipe.AvailableCount of @recipe.TotalCount ingredients available</p>
+                                @if (recipe.AvailableIngredients.Count > 0)
+                                {
+                                    <p class="small text-success mb-1">Have: @string.Join(", ", recipe.AvailableIngredients)</p>
+                                }
+                                @if (recipe.MissingIngredients.Count > 0)
+                                {
+                                    <p class="small text-muted mb-0">Missing: @string.Join(", ", recipe.MissingIngredients)</p>
+                                }
+                            </div>
+                        </a>
+                    </div>
+                }
+            </div>
+        }
+    }
+}
+
+@code {
+    private bool _loading = true;
+    private bool _noRecipesAtAll;
+    private IReadOnlyList<RecipeAvailability> _ranking = [];
+    private string _quickEntryText = string.Empty;
+    private readonly HashSet<string> _selectedTags = new(StringComparer.OrdinalIgnoreCase);
+    private SurprisePick? _surprisePick;
+    private string? _surpriseFallbackMessage;
+    private string? _surpriseError;
+
+    private bool _pantryEmptyAndNoQuickEntry;
+
+    private IReadOnlyList<string> _availableTags =>
+        _ranking.SelectMany(r => r.Tags).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(t => t, StringComparer.OrdinalIgnoreCase).ToList();
+
+    private IReadOnlyList<RecipeAvailability> _visibleRanking =>
+        _selectedTags.Count == 0
+            ? _ranking
+            : _ranking.Where(r => _selectedTags.All(selected => r.Tags.Contains(selected, StringComparer.OrdinalIgnoreCase))).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var anyRecipes = (await RecipeService.GetSummariesAsync()).Count > 0;
+        _noRecipesAtAll = !anyRecipes;
+        if (!_noRecipesAtAll)
+        {
+            await RecalculateAsync();
+        }
+
+        _loading = false;
+    }
+
+    private async Task RecalculateAsync()
+    {
+        var extraIngredients = QuickEntryParser.Parse(_quickEntryText);
+        _ranking = await MatchingService.GetRankingAsync(extraIngredients);
+
+        var pantryIsEmpty = (await PantryService.GetAllAsync()).Count == 0;
+        _pantryEmptyAndNoQuickEntry = pantryIsEmpty && extraIngredients.Count == 0;
+    }
+
+    private async Task ClearQuickEntryAsync()
+    {
+        _quickEntryText = string.Empty;
+        await RecalculateAsync();
+    }
+
+    private void ToggleTag(string tag)
+    {
+        if (!_selectedTags.Remove(tag))
+        {
+            _selectedTags.Add(tag);
+        }
+    }
+
+    private void ClearTagFilters() => _selectedTags.Clear();
+
+    private void SurpriseMe()
+    {
+        _surpriseError = null;
+        _surpriseFallbackMessage = null;
+        _surprisePick = null;
+
+        var pick = SurpriseMePicker.Pick(_visibleRanking, DateTime.UtcNow, Random.Shared.NextDouble);
+        if (pick is null)
+        {
+            _surpriseError = "Nothing to suggest yet — add some pantry items or recipes";
+            return;
+        }
+
+        _surprisePick = pick;
+        if (pick.UsedFallback)
+        {
+            _surpriseFallbackMessage = "You've cooked everything recently — here's a pick anyway";
+        }
+    }
+}

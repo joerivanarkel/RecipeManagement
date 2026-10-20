@@ -11,6 +11,11 @@ public interface IRecipeService
     Task<Result<CreateRecipeOutcome>> CreateAsync(
         NewRecipeInput input, PhotoUploadRequest? photo, CancellationToken cancellationToken = default);
 
+    /// <returns>null if no recipe with that id existed</returns>
+    Task<Result<CreateRecipeOutcome>?> UpdateAsync(
+        Guid id, NewRecipeInput input, PhotoUploadRequest? newPhoto, bool removePhoto,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<RecipeSummary>> GetSummariesAsync(CancellationToken cancellationToken = default);
 
     Task<Recipe?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);

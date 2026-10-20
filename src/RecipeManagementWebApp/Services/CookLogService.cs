@@ -46,14 +46,18 @@ public class CookLogService(RecipeDbContext dbContext) : ICookLogService
             return new CookFrequency(0, null, 0, 0);
         }
 
-        var now = DateTime.UtcNow;
-        var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var startOfWeek = now.Date.AddDays(-(int)now.DayOfWeek);
+        // Boundaries are computed in local calendar time (so "this week"/"this month" match what the
+        // user actually experiences), then converted to UTC for comparison against the stored UTC timestamps.
+        var nowLocal = DateTime.Now;
+        var startOfMonthLocal = new DateTime(nowLocal.Year, nowLocal.Month, 1, 0, 0, 0, DateTimeKind.Local);
+        var startOfWeekLocal = nowLocal.Date.AddDays(-(int)nowLocal.DayOfWeek);
+        var startOfMonthUtc = startOfMonthLocal.ToUniversalTime();
+        var startOfWeekUtc = startOfWeekLocal.ToUniversalTime();
 
         return new CookFrequency(
             TotalCount: entries.Count,
             LastCookedAt: entries.Max(),
-            FrequencyThisMonth: entries.Count(e => e >= startOfMonth),
-            FrequencyThisWeek: entries.Count(e => e >= startOfWeek));
+            FrequencyThisMonth: entries.Count(e => e >= startOfMonthUtc),
+            FrequencyThisWeek: entries.Count(e => e >= startOfWeekUtc));
     }
 }

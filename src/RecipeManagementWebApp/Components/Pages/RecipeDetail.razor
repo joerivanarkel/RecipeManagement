@@ -294,12 +294,22 @@ else
 
     private async Task RemoveTagAsync(Guid tagId)
     {
+        _tagError = null;
         var removed = await TagService.RemoveTagAsync(Id, tagId);
-        if (removed)
+        if (!removed)
         {
-            _recipe!.Tags.RemoveAll(t => t.Id == tagId);
-            _allTagNames = await TagService.GetAllTagNamesAsync();
+            _tagError = "That tag was already removed.";
+            _recipe = await RecipeService.GetByIdAsync(Id);
+            if (_recipe is null)
+            {
+                _notFound = true;
+            }
+
+            return;
         }
+
+        _recipe!.Tags.RemoveAll(t => t.Id == tagId);
+        _allTagNames = await TagService.GetAllTagNamesAsync();
     }
 
     private async Task MarkAsCookedAsync()

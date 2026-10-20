@@ -37,12 +37,15 @@ else
         @foreach (var recipe in _visibleRecipes)
         {
             var (visibleTags, moreCount) = SplitTags(recipe.Tags);
-            <div class="col">
-                <a class="recipe-card card h-100 text-decoration-none text-reset position-relative" href="@($"recipes/{recipe.Id}")">
-                    @if (recipe.IsFavorite)
-                    {
-                        <span class="recipe-card-favorite" title="Favourite" aria-label="Favourite recipe">★</span>
-                    }
+            <div class="col position-relative">
+                <button type="button"
+                        class="recipe-card-favorite btn btn-link p-0 border-0 @(recipe.IsFavorite ? "text-warning" : "text-white")"
+                        title="@(recipe.IsFavorite ? "Unfavourite" : "Favourite")"
+                        aria-label="@(recipe.IsFavorite ? "Remove from favourites" : "Add to favourites")"
+                        @onclick="() => ToggleFavoriteAsync(recipe.Id)">
+                    @(recipe.IsFavorite ? "★" : "☆")
+                </button>
+                <a class="recipe-card card h-100 text-decoration-none text-reset" href="@($"recipes/{recipe.Id}")">
                     @if (recipe.PhotoUrl is not null)
                     {
                         <img src="@recipe.PhotoUrl" class="card-img-top recipe-card-photo" alt="@recipe.Title" loading="lazy" />
@@ -90,6 +93,19 @@ else
     protected override async Task OnInitializedAsync()
     {
         _recipes = await RecipeService.GetSummariesAsync();
+    }
+
+    private async Task ToggleFavoriteAsync(Guid recipeId)
+    {
+        var newState = await RecipeService.ToggleFavoriteAsync(recipeId);
+        if (newState is null || _recipes is null)
+        {
+            return;
+        }
+
+        _recipes = _recipes
+            .Select(r => r.Id == recipeId ? r with { IsFavorite = newState.Value } : r)
+            .ToList();
     }
 
     private static (IReadOnlyList<string> Visible, int MoreCount) SplitTags(IReadOnlyList<string> tags)

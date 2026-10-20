@@ -139,12 +139,24 @@ else
 
     private async Task SaveQuantityAsync(Guid id)
     {
+        _errors.Clear();
+
         var result = await PantryService.UpdateQuantityAsync(id, _editQuantity);
-        if (result is not null && result.Succeeded)
+        if (result is null)
         {
+            _errors = ["This item no longer exists."];
             _items = await PantryService.GetAllAsync();
+            CancelEdit();
+            return;
         }
 
+        if (!result.Succeeded)
+        {
+            _errors = [.. result.Errors];
+            return;
+        }
+
+        _items = await PantryService.GetAllAsync();
         CancelEdit();
     }
 

@@ -481,3 +481,7 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 .claude/settings.local.json
+
+# RecipeManagement local data (SQLite DB, uploaded photos)
+src/RecipeManagementWebApp/App_Data/
+src/RecipeManagementWebApp/wwwroot/uploads/

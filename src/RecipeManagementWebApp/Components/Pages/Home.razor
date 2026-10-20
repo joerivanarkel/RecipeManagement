@@ -1,7 +1,80 @@
-﻿@page "/"
+@page "/"
+@rendermode InteractiveServer
+@using RecipeManagementWebApp.Services
+@inject IRecipeService RecipeService
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Recipes</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>Recipes</h1>
 
-Welcome to your new app.
+@if (_recipes is null)
+{
+    <p>Loading...</p>
+}
+else if (_recipes.Count == 0)
+{
+    <div class="text-center py-5">
+        <p class="fs-5">No recipes yet</p>
+        <a class="btn btn-primary" href="recipes/add">Add your first recipe</a>
+    </div>
+}
+else
+{
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
+        @foreach (var recipe in _recipes)
+        {
+            var (visibleTags, moreCount) = SplitTags(recipe.Tags);
+            <div class="col">
+                <a class="recipe-card card h-100 text-decoration-none text-reset" href="@($"recipes/{recipe.Id}")">
+                    @if (recipe.PhotoUrl is not null)
+                    {
+                        <img src="@recipe.PhotoUrl" class="card-img-top recipe-card-photo" alt="@recipe.Title" loading="lazy" />
+                    }
+                    else
+                    {
+                        <div class="recipe-card-photo recipe-card-placeholder d-flex align-items-center justify-content-center">
+                            <span>No Photo</span>
+                        </div>
+                    }
+                    <div class="card-body">
+                        <h5 class="card-title text-truncate">@recipe.Title</h5>
+                        @if (visibleTags.Count > 0)
+                        {
+                            <div class="mt-2">
+                                @foreach (var tag in visibleTags)
+                                {
+                                    <span class="badge rounded-pill text-bg-secondary me-1">@tag</span>
+                                }
+                                @if (moreCount > 0)
+                                {
+                                    <span class="badge rounded-pill text-bg-light border">+@moreCount more</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </a>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private const int MaxVisibleTags = 5;
+
+    private IReadOnlyList<RecipeSummary>? _recipes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _recipes = await RecipeService.GetSummariesAsync();
+    }
+
+    private static (IReadOnlyList<string> Visible, int MoreCount) SplitTags(IReadOnlyList<string> tags)
+    {
+        if (tags.Count <= MaxVisibleTags)
+        {
+            return (tags, 0);
+        }
+
+        return (tags.Take(MaxVisibleTags).ToList(), tags.Count - MaxVisibleTags);
+    }
+}

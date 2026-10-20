@@ -1,4 +1,8 @@
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using RecipeManagementWebApp.Components;
+using RecipeManagementWebApp.Data;
+using RecipeManagementWebApp.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -6,7 +10,28 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+var recipeDbConnectionString = builder.Configuration.GetConnectionString("RecipeDb")
+    ?? throw new InvalidOperationException("Missing 'ConnectionStrings:RecipeDb' configuration value.");
+
+builder.Services.AddDbContext<RecipeDbContext>(options => options.UseSqlite(recipeDbConnectionString));
+
+builder.Services.Configure<PhotoStorageOptions>(
+    builder.Configuration.GetSection(PhotoStorageOptions.SectionName));
+builder.Services.AddScoped<IPhotoStorageService, PhotoStorageService>();
+builder.Services.AddScoped<IRecipeService, RecipeService>();
+
 var app = builder.Build();
+
+var dbPath = new SqliteConnectionStringBuilder(recipeDbConnectionString).DataSource;
+if (Path.GetDirectoryName(dbPath) is { Length: > 0 } dbDirectory)
+{
+    Directory.CreateDirectory(dbDirectory);
+}
+
+using (var scope = app.Services.CreateScope())
+{
+    scope.ServiceProvider.GetRequiredService<RecipeDbContext>().Database.EnsureCreated();
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

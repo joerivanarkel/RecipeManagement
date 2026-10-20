@@ -1,0 +1,133 @@
+@page "/recipes/{Id:guid}"
+@rendermode InteractiveServer
+@using RecipeManagementWebApp.Domain
+@using RecipeManagementWebApp.Services
+@inject IRecipeService RecipeService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+<PageTitle>@(_recipe?.Title ?? "Recipe")</PageTitle>
+
+@if (_notFound)
+{
+    <div class="py-4">
+        <h1>Recipe not found</h1>
+        <a href="/">Back to recipes</a>
+    </div>
+}
+else if (_recipe is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="row">
+        <div class="col-md-5">
+            @if (_recipe.Photo is not null)
+            {
+                <img src="@_recipe.Photo.StoredAt" class="img-fluid rounded recipe-photo" alt="@_recipe.Title" />
+            }
+            else
+            {
+                <div class="recipe-photo recipe-placeholder d-flex align-items-center justify-content-center rounded">
+                    <span>No Photo</span>
+                </div>
+            }
+        </div>
+        <div class="col-md-7">
+            <h1>@_recipe.Title</h1>
+
+            @if (_deleteError is not null)
+            {
+                <div class="alert alert-danger" role="alert">@_deleteError</div>
+            }
+
+            <div class="mb-3">
+                <label for="servings-slider" class="form-label">Servings: @_selectedServings</label>
+                <input id="servings-slider" type="range" class="form-range" min="1" max="@_maxServings"
+                       @bind="_selectedServings" @bind:event="oninput" style="max-width: 20rem" />
+            </div>
+
+            <div class="d-flex gap-2 mb-4">
+                <button type="button" class="btn btn-primary" disabled title="Coming soon">Start Cooking</button>
+                <button type="button" class="btn btn-outline-secondary" disabled title="Coming soon">Edit Recipe</button>
+                <button type="button" class="btn btn-outline-danger" @onclick="DeleteAsync" disabled="@_isDeleting">
+                    @(_isDeleting ? "Deleting..." : "Delete Recipe")
+                </button>
+            </div>
+
+            <h2>Ingredients</h2>
+            <ul class="list-unstyled">
+                @foreach (var ingredient in _recipe.Ingredients)
+                {
+                    <li>@FormatIngredient(ingredient)</li>
+                }
+            </ul>
+
+            <h2>Steps</h2>
+            @if (_recipe.Steps.Count == 0)
+            {
+                <p class="text-muted">No steps added.</p>
+            }
+            else
+            {
+                <ol>
+                    @foreach (var step in _recipe.Steps)
+                    {
+                        <li class="mb-2">@step.Text</li>
+                    }
+                </ol>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private Recipe? _recipe;
+    private bool _notFound;
+    private int _selectedServings;
+    private int _maxServings = 20;
+    private bool _isDeleting;
+    private string? _deleteError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _recipe = await RecipeService.GetByIdAsync(Id);
+        _notFound = _recipe is null;
+
+        if (_recipe is not null)
+        {
+            _selectedServings = _recipe.Servings;
+            _maxServings = Math.Max(20, _recipe.Servings);
+        }
+    }
+
+    private string FormatIngredient(Ingredient ingredient) =>
+        IngredientFormatter.FormatLine(ingredient, _recipe!.Servings, _selectedServings);
+
+    private async Task DeleteAsync()
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>(
+            "recipeApp.confirmLeave", "Are you sure? This cannot be undone.");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _isDeleting = true;
+        _deleteError = null;
+        try
+        {
+            await RecipeService.DeleteAsync(Id);
+            NavigationManager.NavigateTo("/");
+        }
+        catch (Exception)
+        {
+            _deleteError = "Failed to delete recipe. Please try again.";
+            _isDeleting = false;
+        }
+    }
+}

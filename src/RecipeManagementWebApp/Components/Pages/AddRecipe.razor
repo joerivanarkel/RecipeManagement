@@ -1,0 +1,270 @@
+@page "/recipes/add"
+@rendermode InteractiveServer
+@using RecipeManagementWebApp.Services
+@inject IRecipeService RecipeService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Add Recipe</PageTitle>
+
+<NavigationLock ConfirmExternalNavigation="_isDirty" OnBeforeInternalNavigation="OnBeforeInternalNavigationAsync" />
+
+<h1>Add a Recipe</h1>
+
+@if (_errors.Count > 0)
+{
+    <div class="alert alert-danger" role="alert">
+        <ul class="mb-0">
+            @foreach (var error in _errors)
+            {
+                <li>@error</li>
+            }
+        </ul>
+    </div>
+}
+
+@if (_successMessage is not null)
+{
+    <div class="alert alert-success" role="alert">
+        @_successMessage <a href="/">View recipes</a>
+    </div>
+}
+
+@if (_photoWarning is not null)
+{
+    <div class="alert alert-warning" role="alert">@_photoWarning</div>
+}
+
+<div class="mb-3">
+    <label for="title" class="form-label">Title</label>
+    <input id="title" class="form-control" maxlength="200"
+           @bind="_title" @bind:event="oninput" @bind:after="MarkDirty" />
+</div>
+
+<div class="mb-3">
+    <label for="servings" class="form-label">Servings</label>
+    <input id="servings" class="form-control" inputmode="numeric" style="max-width: 10rem"
+           @bind="_servings" @bind:event="oninput" @bind:after="MarkDirty" />
+</div>
+
+<h2>Ingredients</h2>
+@for (var i = 0; i < _ingredients.Count; i++)
+{
+    var index = i;
+    var row = _ingredients[index];
+    <div class="row g-2 mb-2 align-items-end">
+        <div class="col-md-2">
+            <label class="form-label">Quantity</label>
+            <input class="form-control" @bind="row.Quantity" @bind:event="oninput" @bind:after="MarkDirty" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Unit</label>
+            <input class="form-control" @bind="row.Unit" @bind:event="oninput" @bind:after="MarkDirty" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Item</label>
+            <input class="form-control" @bind="row.Item" @bind:event="oninput" @bind:after="MarkDirty" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Note</label>
+            <input class="form-control" @bind="row.Note" @bind:event="oninput" @bind:after="MarkDirty" />
+        </div>
+        <div class="col-md-2">
+            <button type="button" class="btn btn-outline-danger" @onclick="() => RemoveIngredient(index)">Remove</button>
+        </div>
+    </div>
+}
+<button type="button" class="btn btn-outline-secondary mb-4" @onclick="AddIngredient">Add Ingredient</button>
+
+<h2>Steps</h2>
+@for (var i = 0; i < _steps.Count; i++)
+{
+    var index = i;
+    <div class="row g-2 mb-2 align-items-start">
+        <div class="col-md-9">
+            <label class="form-label">Step @(index + 1)</label>
+            <textarea class="form-control" maxlength="1000"
+                      @bind="_steps[index]" @bind:event="oninput" @bind:after="MarkDirty"></textarea>
+        </div>
+        <div class="col-md-3">
+            <button type="button" class="btn btn-outline-danger" @onclick="() => RemoveStep(index)">Remove</button>
+        </div>
+    </div>
+}
+<button type="button" class="btn btn-outline-secondary mb-4" @onclick="AddStep">Add Step</button>
+
+<h2>Photo (optional)</h2>
+<div class="mb-3">
+    <InputFile OnChange="OnPhotoSelected" accept=".jpg,.jpeg,.png,.gif" />
+    @if (_photoFileName is not null)
+    {
+        <p class="form-text">Selected: @_photoFileName</p>
+    }
+    @if (_photoError is not null)
+    {
+        <p class="text-danger">@_photoError</p>
+    }
+</div>
+
+<button type="button" class="btn btn-primary" @onclick="SaveAsync" disabled="@_isSaving">
+    @(_isSaving ? "Saving..." : "Save Recipe")
+</button>
+
+@code {
+    private const long MaxPhotoSizeBytes = 5 * 1024 * 1024;
+
+    private static readonly HashSet<string> AllowedPhotoContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/png", "image/gif",
+    };
+
+    private string _title = string.Empty;
+    private string _servings = string.Empty;
+    private List<IngredientRow> _ingredients = [new(), new()];
+    private List<string> _steps = [string.Empty];
+
+    private IBrowserFile? _photoFile;
+    private string? _photoFileName;
+    private string? _photoError;
+    private string? _photoWarning;
+
+    private List<string> _errors = [];
+    private string? _successMessage;
+    private bool _isDirty;
+    private bool _isSaving;
+
+    private void MarkDirty() => _isDirty = true;
+
+    private void AddIngredient()
+    {
+        _ingredients.Add(new IngredientRow());
+        MarkDirty();
+    }
+
+    private void RemoveIngredient(int index)
+    {
+        _ingredients.RemoveAt(index);
+        MarkDirty();
+    }
+
+    private void AddStep()
+    {
+        _steps.Add(string.Empty);
+        MarkDirty();
+    }
+
+    private void RemoveStep(int index)
+    {
+        _steps.RemoveAt(index);
+        MarkDirty();
+    }
+
+    private void OnPhotoSelected(InputFileChangeEventArgs e)
+    {
+        _photoError = null;
+        var file = e.File;
+
+        if (!AllowedPhotoContentTypes.Contains(file.ContentType))
+        {
+            _photoError = "Invalid file format. Supported: JPG, PNG, GIF";
+            _photoFile = null;
+            _photoFileName = null;
+            return;
+        }
+
+        if (file.Size > MaxPhotoSizeBytes)
+        {
+            _photoError = "File too large (max 5MB)";
+            _photoFile = null;
+            _photoFileName = null;
+            return;
+        }
+
+        _photoFile = file;
+        _photoFileName = file.Name;
+        MarkDirty();
+    }
+
+    private async Task SaveAsync()
+    {
+        _isSaving = true;
+        _errors.Clear();
+        _successMessage = null;
+        _photoWarning = null;
+
+        Stream? photoStream = null;
+        try
+        {
+            var input = new NewRecipeInput(
+                _title,
+                _servings,
+                _ingredients.Select(row => new NewIngredientInput(row.Quantity, row.Unit, row.Item, row.Note)).ToList(),
+                [.. _steps]);
+
+            PhotoUploadRequest? photoRequest = null;
+            if (_photoFile is not null)
+            {
+                photoStream = _photoFile.OpenReadStream(MaxPhotoSizeBytes);
+                photoRequest = new PhotoUploadRequest(photoStream, _photoFile.Name, _photoFile.ContentType, _photoFile.Size);
+            }
+
+            var result = await RecipeService.CreateAsync(input, photoRequest);
+            if (!result.Succeeded)
+            {
+                _errors = [.. result.Errors];
+                return;
+            }
+
+            _photoWarning = result.Value!.PhotoWarning;
+            _successMessage = $"\"{result.Value.Recipe.Title}\" was saved.";
+            _isDirty = false;
+            ResetForm();
+        }
+        catch (Exception)
+        {
+            _errors = ["Failed to save recipe. Please try again."];
+        }
+        finally
+        {
+            if (photoStream is not null)
+            {
+                await photoStream.DisposeAsync();
+            }
+
+            _isSaving = false;
+        }
+    }
+
+    private void ResetForm()
+    {
+        _title = string.Empty;
+        _servings = string.Empty;
+        _ingredients = [new(), new()];
+        _steps = [string.Empty];
+        _photoFile = null;
+        _photoFileName = null;
+        _photoError = null;
+    }
+
+    private async Task OnBeforeInternalNavigationAsync(LocationChangingContext context)
+    {
+        if (!_isDirty)
+        {
+            return;
+        }
+
+        var confirmed = await JSRuntime.InvokeAsync<bool>(
+            "recipeApp.confirmLeave", "You have unsaved changes. Leave anyway?");
+        if (!confirmed)
+        {
+            context.PreventNavigation();
+        }
+    }
+
+    private class IngredientRow
+    {
+        public string Quantity { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+        public string Item { get; set; } = string.Empty;
+        public string Note { get; set; } = string.Empty;
+    }
+}

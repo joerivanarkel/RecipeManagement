@@ -94,6 +94,20 @@ Use `@rendermode InteractiveServer` on components that need server-side event ha
 
 Run with `dotnet run` in development mode to enable hot reload and detailed error pages. The browser console and the terminal where you run `dotnet run` will show diagnostic information.
 
+## Issue Tracking
+
+**MCP Server**: GitHub (`github` MCP server)  
+**Repository Owner**: `joerivanarkel`  
+**Repository Name**: `RecipeManagement`  
+**Repository URL**: https://github.com/joerivanarkel/RecipeManagement  
+**Issue Tracker Tool**: `mcp__github__issue_write` with `method: "create"`
+
+To file a new issue without asking:
+- Use the GitHub MCP server's `issue_write` tool
+- Set `owner: "joerivanarkel"`, `repo: "RecipeManagement"`, `method: "create"`
+- Provide `title` and `body` parameters
+- Issues are created at: https://github.com/joerivanarkel/RecipeManagement/issues/
+
 ## Architecture Documentation
 
 Formal architecture documentation follows the arc42 template in `docs/architecture/`. Refer to these documents for high-level design decisions, constraints, and quality goals.

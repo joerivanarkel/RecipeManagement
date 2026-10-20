@@ -113,6 +113,30 @@ else
                 <p class="text-muted">@FormatCookFrequency(_cookFrequency)</p>
             }
 
+            <details class="mb-4">
+                <summary class="h5" style="cursor: pointer">Cook History</summary>
+                @if (_cookHistory is null || _cookHistory.TotalCount == 0)
+                {
+                    <p class="text-muted">Never cooked — start cooking to begin tracking</p>
+                }
+                else
+                {
+                    <p class="text-muted">
+                        Cooked @_cookHistory.TotalCount @(_cookHistory.TotalCount == 1 ? "time" : "times") total
+                        · @_cookHistory.CountThisMonth this month · @_cookHistory.CountThisWeek this week
+                    </p>
+                    <ul class="list-group" style="max-height: 18rem; overflow-y: auto;">
+                        @foreach (var entry in _cookHistory.Entries)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>@RelativeTimeFormatter.FormatLastCooked(entry.CookedAt)</span>
+                                <span class="text-muted">@entry.Servings servings</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </details>
+
             <div class="d-flex gap-2 mb-4">
                 <button type="button" class="btn btn-primary" disabled title="Coming soon">Start Cooking</button>
                 <button type="button" class="btn btn-outline-primary" @onclick="MarkAsCookedAsync" disabled="@_isMarkingCooked">
@@ -163,6 +187,7 @@ else
     private bool _isTogglingFavorite;
     private string? _favoriteError;
     private CookFrequency? _cookFrequency;
+    private CookHistorySummary? _cookHistory;
 
     private string _newTag = string.Empty;
     private bool _isAddingTag;
@@ -193,6 +218,7 @@ else
             _maxServings = Math.Max(20, _recipe.Servings);
             _allTagNames = await TagService.GetAllTagNamesAsync();
             _cookFrequency = await CookLogService.GetFrequencyAsync(Id);
+            _cookHistory = await CookLogService.GetHistoryAsync(Id);
         }
     }
 
@@ -204,19 +230,8 @@ else
         }
 
         var timesWord = frequency.TotalCount == 1 ? "time" : "times";
-        var lastCooked = FormatRelativeDate(frequency.LastCookedAt!.Value);
+        var lastCooked = RelativeTimeFormatter.FormatLastCooked(frequency.LastCookedAt);
         return $"Cooked {frequency.TotalCount} {timesWord} · Last cooked {lastCooked}";
-    }
-
-    private static string FormatRelativeDate(DateTime cookedAt)
-    {
-        var days = (DateTime.UtcNow.Date - cookedAt.Date).Days;
-        return days switch
-        {
-            0 => "today",
-            1 => "yesterday",
-            _ => $"{days} days ago",
-        };
     }
 
     private string FormatIngredient(Ingredient ingredient) =>
@@ -333,6 +348,7 @@ else
             if (entry is not null)
             {
                 _cookFrequency = await CookLogService.GetFrequencyAsync(Id);
+                _cookHistory = await CookLogService.GetHistoryAsync(Id);
             }
         }
         finally

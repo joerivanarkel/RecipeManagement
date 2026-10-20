@@ -20,12 +20,24 @@ else if (_recipes.Count == 0)
 }
 else
 {
+    <div class="mb-3" style="max-width: 24rem">
+        <label for="searchBox" class="form-label visually-hidden">Search recipes</label>
+        <input id="searchBox" class="form-control" placeholder="Search by title or ingredient..."
+               @bind="_searchQuery" @bind:event="oninput" />
+    </div>
+
     <div class="form-check form-switch mb-3">
         <input class="form-check-input" type="checkbox" role="switch" id="favouritesOnlyToggle" @bind="_favouritesOnly" />
         <label class="form-check-label" for="favouritesOnlyToggle">Favourites only</label>
     </div>
 
-    @if (_favouritesOnly && _visibleRecipes.Count == 0)
+    @if (!string.IsNullOrWhiteSpace(_searchQuery) && _visibleRecipes.Count == 0)
+    {
+        <div class="text-center py-5">
+            <p class="fs-5">No recipes found for '@_searchQuery.Trim()'</p>
+        </div>
+    }
+    else if (_favouritesOnly && _visibleRecipes.Count == 0)
     {
         <div class="text-center py-5">
             <p class="fs-5">No favourites yet — tap the star on a recipe to add one</p>
@@ -58,6 +70,7 @@ else
                     }
                     <div class="card-body">
                         <h5 class="card-title text-truncate">@recipe.Title</h5>
+                        <p class="text-muted small mb-0">@RelativeTimeFormatter.FormatLastCooked(recipe.LastCookedAt)</p>
                         @if (visibleTags.Count > 0)
                         {
                             <div class="mt-2">
@@ -84,11 +97,30 @@ else
 
     private IReadOnlyList<RecipeSummary>? _recipes;
     private bool _favouritesOnly;
+    private string _searchQuery = string.Empty;
 
-    private IReadOnlyList<RecipeSummary> _visibleRecipes =>
-        _favouritesOnly
-            ? _recipes!.Where(r => r.IsFavorite).ToList()
-            : _recipes!;
+    private IReadOnlyList<RecipeSummary> _visibleRecipes
+    {
+        get
+        {
+            IEnumerable<RecipeSummary> recipes = _recipes!;
+
+            if (_favouritesOnly)
+            {
+                recipes = recipes.Where(r => r.IsFavorite);
+            }
+
+            var query = _searchQuery.Trim();
+            if (query.Length > 0)
+            {
+                recipes = recipes.Where(r =>
+                    r.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || r.IngredientNames.Any(i => i.Contains(query, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            return recipes.ToList();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
